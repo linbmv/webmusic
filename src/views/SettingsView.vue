@@ -3,32 +3,26 @@
     <header class="page-header">
       <div>
         <h1 class="page-title">{{ zh.app.settings }}</h1>
-        <p class="page-subtitle">{{ zh.music.settingsSubtitle }}</p>
       </div>
     </header>
 
-    <div class="track-list">
-      <SettingRow :label="zh.music.defaultQuality" value="320kmp3" />
-      <SettingRow :label="zh.music.wordLyric" :value="zh.common.enabled" />
+    <div class="settings-list">
       <div class="provider-row fm-setting">
         <span>{{ zh.music.activeProvider }}</span>
         <select v-model="selectedProvider" @change="switchProvider">
           <option v-for="provider in providerStore.providers" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
         </select>
       </div>
-      <div class="provider-stack fm-setting">
-        <span>Fallback</span>
-        <strong>{{ fallbackText }}</strong>
-      </div>
+
       <div class="provider-row fm-setting">
         <span>{{ healthText }}</span>
         <button class="secondary-btn" @click="providerStore.checkActiveHealth()">Health</button>
       </div>
-      <div v-if="selectedProvider === 'karpov'" class="provider-stack fm-setting">
-        <span>{{ accountText }}</span>
-        <button class="secondary-btn" @click="providerStore.loadAccountSummary()">Account</button>
-      </div>
-      <SettingRow :label="zh.music.darkTheme" :value="zh.common.enabled" />
+
+      <label class="provider-row fm-setting toggle-row">
+        <span>{{ zh.music.darkTheme }}</span>
+        <input type="checkbox" :checked="ui.darkTheme" @change="toggleDarkTheme" />
+      </label>
     </div>
   </div>
 </template>
@@ -36,27 +30,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { zh } from "@/i18n/zh";
-import SettingRow from "@/components/UI/SettingRow.vue";
 import { useProviderStore } from "@/stores/providerStore";
+import { useUiStore } from "@/stores/uiStore";
 import type { ProviderId } from "@/types/music";
 
 const providerStore = useProviderStore();
+const ui = useUiStore();
 const selectedProvider = ref(providerStore.config.activeProviderId);
+
 const healthText = computed(() => {
   if (providerStore.healthError) return providerStore.healthError;
-  if (providerStore.activeHealth) return providerStore.activeHealth.ok ? "OK" : providerStore.activeHealth.message ?? "Failed";
+  if (providerStore.activeHealth) return providerStore.activeHealth.ok ? "Provider health: OK" : providerStore.activeHealth.message ?? "Provider health: Failed";
   return "Provider health";
-});
-const fallbackText = computed(() => providerStore.config.fallbackProviderIds.join(" -> "));
-const accountText = computed(() => {
-  if (providerStore.accountError) return providerStore.accountError;
-  const summary = providerStore.accountSummary;
-  if (!summary) return "Karpov account";
-  const balance = summary.balance?.balanceCents;
-  const currency = summary.balance?.currency ?? "CNY";
-  const usage = summary.usage;
-  const money = balance === undefined ? "--" : `${currency} ${(balance / 100).toFixed(2)}`;
-  return `Balance ${money} · Today ${usage?.today ?? "--"}/${usage?.dailyLimit ?? "--"}`;
 });
 
 watch(
@@ -67,13 +52,22 @@ watch(
 function switchProvider(): void {
   providerStore.switchProvider(selectedProvider.value as ProviderId);
 }
+
+function toggleDarkTheme(event: Event): void {
+  ui.setDarkTheme((event.target as HTMLInputElement).checked);
+}
 </script>
 
 <style scoped>
+.settings-list {
+  display: grid;
+  gap: 8px;
+}
+
 .fm-setting {
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-layer);
+  border: 1px solid var(--bg-border);
   padding: 12px 14px;
 }
 
@@ -98,8 +92,6 @@ function switchProvider(): void {
   padding: 0 32px 0 12px;
   font-size: 14px;
   cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23999' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -111,25 +103,39 @@ function switchProvider(): void {
   color: var(--text);
 }
 
-.provider-stack {
-  min-height: 58px;
-  display: grid;
-  gap: 8px;
+.toggle-row {
+  cursor: pointer;
 }
 
-.provider-stack span {
-  color: var(--text-muted);
+.toggle-row input {
+  width: 46px;
+  height: 26px;
+  margin: 0;
+  appearance: none;
+  border-radius: 999px;
+  background: rgba(118, 118, 128, 0.32);
+  border: 1px solid var(--bg-border);
+  position: relative;
+  cursor: pointer;
 }
 
-.provider-stack strong {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+.toggle-row input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 180ms ease;
 }
 
-.provider-stack button {
-  justify-self: start;
+.toggle-row input:checked {
+  background: var(--primary);
+}
+
+.toggle-row input:checked::after {
+  transform: translateX(20px);
 }
 </style>

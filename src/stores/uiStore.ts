@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import type { NormalizedSong } from "@/types/music";
 
 type BottomSheetState =
@@ -23,16 +23,24 @@ export const useUiStore = defineStore("ui", () => {
   const playerOpen = ref(false);
   const lyricsOpen = ref(false);
   const navHidden = ref(false);
+  const darkTheme = ref(loadDarkTheme());
   const bottomSheet = ref<BottomSheetState>(null);
   const actionSheet = ref<ActionSheetState>(null);
   const toasts = ref<ToastItem[]>([]);
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  applyTheme(darkTheme.value);
+  watch(darkTheme, (enabled) => {
+    applyTheme(enabled);
+    persistDarkTheme(enabled);
+  });
 
   function openPlayer(): void { playerOpen.value = true; lyricsOpen.value = false; }
   function closePlayer(): void { playerOpen.value = false; }
 
   // 底部导航自动隐藏：内容向下滚动时隐藏、向上滚动时显示（仅移动端响应）
   function setNavHidden(hidden: boolean): void { navHidden.value = hidden; }
+  function setDarkTheme(enabled: boolean): void { darkTheme.value = enabled; }
 
   // 歌词层与全屏播放器互斥：打开歌词时关闭全屏播放器，避免两层全屏叠加
   function toggleLyrics(): void {
@@ -87,6 +95,7 @@ export const useUiStore = defineStore("ui", () => {
     playerOpen,
     lyricsOpen,
     navHidden,
+    darkTheme,
     bottomSheet,
     actionSheet,
     toasts,
@@ -95,6 +104,7 @@ export const useUiStore = defineStore("ui", () => {
     toggleLyrics,
     closeLyrics,
     setNavHidden,
+    setDarkTheme,
     openAddToPlaylist,
     openQueue,
     closeBottomSheet,
@@ -106,3 +116,20 @@ export const useUiStore = defineStore("ui", () => {
     dismissToast,
   };
 });
+
+const darkThemeStorageKey = "music.ui.darkTheme.v1";
+
+function loadDarkTheme(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(darkThemeStorageKey) !== "false";
+}
+
+function persistDarkTheme(enabled: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(darkThemeStorageKey, String(enabled));
+}
+
+function applyTheme(enabled: boolean): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.theme = enabled ? "dark" : "light";
+}
