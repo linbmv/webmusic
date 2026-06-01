@@ -1,0 +1,14 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+coverage/
+.vite/
+*.local
+.claude/
+.codex/
+*.log
+*.err.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Music Clone Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="phone-shell" aria-label="music mobile prototype">
+      <section class="screen active" data-screen="discover">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">FreeMusic</p>
+            <h1 data-text="discover">Discover</h1>
+          </div>
+          <button class="icon-button" aria-label="private FM">FM</button>
+        </header>
+
+        <article class="hero-card">
+          <p data-text="daily">Daily</p>
+          <h2 data-text="tonight">Tonight playlist</h2>
+          <button class="primary-button" data-open-player data-text="playDaily">Play</button>
+        </article>
+
+        <section class="rail">
+          <div class="section-title">
+            <h2 data-text="recommendPlaylists">Playlists</h2>
+            <button class="text-button" data-open-sheet data-text="addToPlaylist">Add</button>
+          </div>
+          <div class="playlist-rail">
+            <button class="playlist-card" data-longpress>
+              <span class="cover green"></span>
+              <strong data-text="douyinRank">Douyin Rank</strong>
+              <small><span>82</span> <span data-text="songUnit">songs</span></small>
+            </button>
+            <button class="playlist-card" data-longpress>
+              <span class="cover violet"></span>
+              <strong data-text="nightWalk">Night walk</strong>
+              <small><span>36</span> <span data-text="songUnit">songs</span></small>
+            </button>
+            <button class="playlist-card" data-longpress>
+              <span class="cover amber"></span>
+              <strong data-text="newSongs">New songs</strong>
+              <small><span>48</span> <span data-text="songUnit">songs</span></small>
+            </button>
+          </div>
+        </section>
+
+        <section class="list-section">
+          <div class="section-title">
+            <h2 data-text="recent">Recent</h2>
+            <span data-text="swipeDelete">Swipe delete</span>
+          </div>
+          <div class="swipe-row" data-swipe-row>
+            <div class="delete-action" data-text="delete">Delete</div>
+            <button class="track-row" data-open-player>
+              <span class="track-cover"></span>
+              <span><strong data-text="yinTianLive">Yin Tian</strong><small><span data-text="moWenWei">Artist</span> - <span data-text="huiWei">Album</span></small></span>
+              <span class="source-badge">NE</span>
+            </button>
+          </div>
+          <div class="swipe-row" data-swipe-row>
+            <div class="delete-action" data-text="delete">Delete</div>
+            <button class="track-row" data-open-player>
+              <span class="track-cover alt"></span>
+              <span><strong data-text="glass">Glass</strong><small><span data-text="haiYuNi">Artist</span> - <span data-text="hot">Hot</span></small></span>
+              <span class="source-badge">KW</span>
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" data-screen="search">
+        <header class="topbar"><h1 data-text="search">Search</h1></header>
+        <label class="search-box"><input data-value="jay" aria-label="search keyword" /><button data-text="search">Search</button></label>
+        <section class="chip-group">
+          <button data-text="glass">Glass</button><button data-text="yinTian">Yin Tian</button><button data-text="haiYuNi">Hai Yu Ni</button><button data-text="qingTian">Qing Tian</button><button data-text="daoXiang">Dao Xiang</button>
+        </section>
+        <section class="list-section compact">
+          <h2 data-text="suggestions">Suggestions</h2>
+          <button class="track-row"><span class="track-cover"></span><span><strong data-text="yinTian">Yin Tian</strong><small data-text="searchSuggestion">Suggestion</small></span></button>
+          <button class="track-row"><span class="track-cover alt"></span><span><strong><span data-text="jay">Jay</span> <span data-text="popularSongs">Songs</span></strong><small data-text="searchSuggestion">Suggestion</small></span></button>
+        </section>
+      </section>
+
+      <section class="screen" data-screen="toplist">
+        <header class="topbar"><h1 data-text="toplist">Toplist</h1></header>
+        <article class="rank-card"><h2 data-text="neteaseRising">Rising</h2><p>1. <span data-text="yinTian">Yin Tian</span> - <span data-text="moWenWei">Artist</span></p><p>2. <span data-text="glass">Glass</span> - <span data-text="haiYuNi">Artist</span></p><p>3. <span data-text="qingTian">Qing Tian</span> - <span data-text="jay">Jay</span></p></article>
+        <div class="rank-grid"><button data-text="kuwoHot">Hot</button><button data-text="kuwoNew">New</button><button data-text="chineseRank">Chinese</button><button data-text="westernRank">Western</button></div>
+      </section>
+
+      <section class="screen" data-screen="library">
+        <header class="topbar"><h1 data-text="library">Library</h1><button class="primary-button small" data-open-sheet data-text="create">Create</button></header>
+        <div class="library-grid"><button><span data-text="favoriteSongs">Favorites</span><br /><strong>128</strong></button><button><span data-text="recent">Recent</span><br /><strong>24</strong></button></div>
+        <button class="wide-card" data-longpress><span data-text="nightWalk">Night walk</span> <span data-text="longPressRename">Rename</span></button>
+      </section>
+
+      <section class="screen" data-screen="settings">
+        <header class="topbar"><h1 data-text="settings">Settings</h1></header>
+        <div class="setting-row"><span data-text="defaultQuality">Quality</span><strong>320kmp3</strong></div>
+        <div class="setting-row"><span data-text="wordLyric">Lyrics</span><input type="checkbox" checked /></div>
+        <div class="setting-row"><span data-text="activeProvider">Provider</span><strong>freeMusic</strong></div>
+      </section>
+
+      <section class="mini-player" data-open-player>
+        <span class="track-cover"></span>
+        <span><strong data-text="yinTianLive">Yin Tian</strong><small><span data-text="moWenWei">Artist</span> - <span data-text="netease">Netease</span></small></span>
+        <button aria-label="play">?</button>
+        <button aria-label="queue">?</button>
+      </section>
+
+      <nav class="bottom-nav" aria-label="main nav">
+        <button class="active" data-tab="discover">?<span data-text="discover">Discover</span></button>
+        <button data-tab="search">?<span data-text="search">Search</span></button>
+        <button data-tab="toplist">?<span data-text="toplist">Toplist</span></button>
+        <button data-tab="library">?<span data-text="library">Library</span></button>
+        <button data-tab="settings">?<span data-text="settings">Settings</span></button>
+      </nav>
+
+      <aside class="full-player" aria-hidden="true">
+        <header><button data-close-player>?</button><span data-text="yinTianLive">Yin Tian</span><button>?</button></header>
+        <div class="vinyl"><span class="track-cover large"></span></div>
+        <div class="lyrics"><p data-text="previousLyric">Previous lyric</p><strong data-text="currentLyric">Current lyric</strong><p data-text="nextLyric">Next lyric</p></div>
+        <div class="progress"><span>01:24</span><input type="range" value="36" aria-label="progress" /><span>04:12</span></div>
+        <div class="controls"><button>?</button><button>?</button><button class="play">?</button><button>?</button><button>?</button></div>
+        <footer><button><span data-text="source">Source</span>: <span data-text="netease">Netease</span></button><button><span data-text="quality">Quality</span>: 320k</button></footer>
+      </aside>
+
+      <aside class="bottom-sheet" aria-hidden="true">
+        <header><strong data-text="addToPlaylist">Add to playlist</strong><button data-close-sheet>?</button></header>
+        <button class="sheet-row">? <span data-text="create">Create</span></button>
+        <button class="sheet-row"><span data-text="nightWalk">Night walk</span> ?</button>
+        <button class="sheet-row" data-text="chineseSlow">Chinese slow</button>
+      </aside>
+
+      <aside class="action-sheet" aria-hidden="true">
+        <header><strong data-text="playlistActions">Actions</strong><button data-close-action>?</button></header>
+        <label><span data-text="name">Name</span><input data-value="nightWalk" /></label>
+        <button class="primary-button" data-close-action data-text="saveName">Save</button>
+      </aside>
+
+      <div class="toast" role="status" data-text="deletedUndo">Deleted</div>
+    </main>
+    <script src="./demo.js"></script>
+  </body>
+</html>
