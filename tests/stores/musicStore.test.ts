@@ -70,6 +70,18 @@ describe("musicStore", () => {
     expect(JSON.parse(localStorage.getItem(providerStorageKey) ?? "{}").activeProviderId).toBe("mock");
   });
 
+  it("resets provider health state when switching providers", async () => {
+    const providerStore = useProviderStore();
+
+    await providerStore.checkActiveHealth();
+    expect(providerStore.activeHealth?.ok).toBe(true);
+
+    providerStore.switchProvider("custom");
+
+    expect(providerStore.activeHealth).toBeNull();
+    expect(providerStore.healthError).toBeNull();
+  });
+
   it("loads legacy provider config with missing provider fields", () => {
     localStorage.setItem(providerStorageKey, JSON.stringify({
       activeProviderId: "karpov",

@@ -8,15 +8,16 @@
 
     <div class="settings-list">
       <div class="provider-row fm-setting">
-        <span>{{ zh.music.activeProvider }}</span>
+        <span class="provider-label">
+          {{ zh.music.activeProvider }}
+          <button class="health-dot" :class="healthState" :aria-label="healthLabel" :title="healthLabel" @click="providerStore.checkActiveHealth()">
+            <Check v-if="healthState === 'ok'" :size="13" />
+            <X v-else-if="healthState === 'fail'" :size="13" />
+          </button>
+        </span>
         <select v-model="selectedProvider" @change="switchProvider">
           <option v-for="provider in providerStore.providers" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
         </select>
-      </div>
-
-      <div class="provider-row fm-setting">
-        <span>{{ healthText }}</span>
-        <button class="secondary-btn" @click="providerStore.checkActiveHealth()">Health</button>
       </div>
 
       <label class="provider-row fm-setting toggle-row">
@@ -29,6 +30,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { Check, X } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useProviderStore } from "@/stores/providerStore";
 import { useUiStore } from "@/stores/uiStore";
@@ -38,10 +40,15 @@ const providerStore = useProviderStore();
 const ui = useUiStore();
 const selectedProvider = ref(providerStore.config.activeProviderId);
 
-const healthText = computed(() => {
+const healthState = computed<"idle" | "ok" | "fail">(() => {
+  if (providerStore.healthError) return "fail";
+  if (!providerStore.activeHealth) return "idle";
+  return providerStore.activeHealth.ok ? "ok" : "fail";
+});
+const healthLabel = computed(() => {
   if (providerStore.healthError) return providerStore.healthError;
-  if (providerStore.activeHealth) return providerStore.activeHealth.ok ? "Provider health: OK" : providerStore.activeHealth.message ?? "Provider health: Failed";
-  return "Provider health";
+  if (!providerStore.activeHealth) return "Provider health not checked";
+  return providerStore.activeHealth.ok ? "Provider health OK" : providerStore.activeHealth.message ?? "Provider health failed";
 });
 
 watch(
@@ -81,6 +88,36 @@ function toggleDarkTheme(event: Event): void {
 
 .provider-row span {
   color: var(--text-muted);
+}
+
+.provider-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.health-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  color: rgba(235, 235, 245, 0.7);
+  background: rgba(118, 118, 128, 0.24);
+  border: 1px solid var(--bg-border);
+  cursor: pointer;
+}
+
+.health-dot.ok {
+  color: #fff;
+  background: #30d158;
+  border-color: transparent;
+}
+
+.health-dot.fail {
+  color: #fff;
+  background: var(--danger);
+  border-color: transparent;
 }
 
 .provider-row select {

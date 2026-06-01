@@ -11,6 +11,7 @@ const upstreams = {
   gdstudio: "https://music-api.gdstudio.xyz/api.php",
 };
 const port = Number(process.env.PORT ?? 8080);
+const host = process.env.HOST ?? "0.0.0.0";
 
 createServer(async (req, res) => {
   try {
@@ -32,8 +33,8 @@ createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, 502, { error: error instanceof Error ? error.message : "Proxy failure" });
   }
-}).listen(port, "127.0.0.1", () => {
-  console.log(`music clone server listening on http://127.0.0.1:${port}`);
+}).listen(port, host, () => {
+  console.log(`music clone server listening on http://${host}:${port}`);
 });
 
 async function proxyMusic(url, res, options) {

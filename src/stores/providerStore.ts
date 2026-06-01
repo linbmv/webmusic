@@ -28,6 +28,7 @@ export const useProviderStore = defineStore("provider", () => {
     const fallbackProviderIds = [previousProviderId, ...config.value.fallbackProviderIds]
       .filter((id) => id !== providerId);
     config.value = { ...config.value, activeProviderId: providerId, fallbackProviderIds: Array.from(new Set(fallbackProviderIds)) };
+    resetHealthState();
   }
 
   function setConfig(next: Partial<ProviderRuntimeConfig>): void {
@@ -39,13 +40,25 @@ export const useProviderStore = defineStore("provider", () => {
   }
 
   async function checkActiveHealth(): Promise<void> {
+    const provider = activeProvider.value;
+    const providerId = provider.id;
     activeHealth.value = null;
     healthError.value = null;
     try {
-      activeHealth.value = await activeProvider.value.healthCheck();
+      const result = await provider.healthCheck();
+      if (config.value.activeProviderId === providerId) activeHealth.value = result;
     } catch (error) {
-      healthError.value = error instanceof Error ? error.message : "Provider health check failed";
+      if (config.value.activeProviderId === providerId) {
+        healthError.value = error instanceof Error ? error.message : "Provider health check failed";
+      }
     }
+  }
+
+  function resetHealthState(): void {
+    activeHealth.value = null;
+    healthError.value = null;
+    accountSummary.value = null;
+    accountError.value = null;
   }
 
   async function loadAccountSummary(): Promise<void> {
