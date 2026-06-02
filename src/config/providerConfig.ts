@@ -10,10 +10,10 @@ const baseProvider = {
 };
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
-  activeProviderId: "freeMusic",
-  fallbackProviderIds: ["freeMusic", "gdStudio"],
+  activeProviderId: "gdStudio",
+  fallbackProviderIds: ["gdStudio", "mock"],
   defaultQuality: "320kmp3",
-  defaultSources: ["netease", "kuwo"],
+  defaultSources: ["kuwo", "netease"],
   useBffProxy: true,
   providers: {
     mock: {
@@ -61,14 +61,20 @@ export function cloneProviderConfig(config: ProviderRuntimeConfig): ProviderRunt
 
 export function mergeProviderConfig(input: unknown = {}): ProviderRuntimeConfig {
   const raw = isRecord(input) ? input : {};
+  const activeProviderId = normalizeActiveProviderId(raw.activeProviderId);
   return {
-    activeProviderId: isProviderId(raw.activeProviderId) ? raw.activeProviderId : defaultProviderConfig.activeProviderId,
+    activeProviderId,
     fallbackProviderIds: normalizeProviderIds(raw.fallbackProviderIds),
     defaultQuality: normalizeQuality(raw.defaultQuality),
     defaultSources: normalizeSources(raw.defaultSources),
     useBffProxy: typeof raw.useBffProxy === "boolean" ? raw.useBffProxy : defaultProviderConfig.useBffProxy,
     providers: mergeProviderEntries(raw.providers),
   };
+}
+
+function normalizeActiveProviderId(input: unknown): ProviderId {
+  if (input === "freeMusic") return defaultProviderConfig.activeProviderId;
+  return isProviderId(input) ? input : defaultProviderConfig.activeProviderId;
 }
 
 export function isProviderId(value: unknown): value is ProviderId {

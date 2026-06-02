@@ -100,4 +100,17 @@ describe("musicStore", () => {
     expect(providerStore.config.providers.freeMusic.baseUrl).toBe(defaultProviderConfig.providers.freeMusic.baseUrl);
     expect(providerStore.config.providers.gdStudio.baseUrl).toBe(defaultProviderConfig.providers.gdStudio.baseUrl);
   });
+
+  it("uses GD Studio as the default provider and migrates retired FreeMusic defaults", () => {
+    localStorage.removeItem(providerStorageKey);
+    setActivePinia(createPinia());
+
+    expect(useProviderStore().config.activeProviderId).toBe("gdStudio");
+    expect(defaultProviderConfig.fallbackProviderIds).toEqual(["gdStudio", "mock"]);
+
+    localStorage.setItem(providerStorageKey, JSON.stringify({ activeProviderId: "freeMusic" }));
+    setActivePinia(createPinia());
+
+    expect(useProviderStore().config.activeProviderId).toBe("gdStudio");
+  });
 });
