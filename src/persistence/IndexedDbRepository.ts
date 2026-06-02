@@ -108,4 +108,18 @@ export class IndexedDbRepository {
     const db = await this.dbPromise;
     await db.put("settings", settings, settingsKey);
   }
+
+  async replaceLibrary(data: { favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] }): Promise<void> {
+    const db = await this.dbPromise;
+    const tx = db.transaction(["favoriteSongs", "playlists", "recentPlays"], "readwrite");
+    await Promise.all([
+      tx.objectStore("favoriteSongs").clear(),
+      tx.objectStore("playlists").clear(),
+      tx.objectStore("recentPlays").clear(),
+    ]);
+    await Promise.all(data.favorites.map((song) => tx.objectStore("favoriteSongs").put(toPlain(song), song.stableId)));
+    await Promise.all(data.playlists.map((playlist) => tx.objectStore("playlists").put(toPlain(playlist), playlist.id)));
+    await Promise.all(data.recents.map((recent) => tx.objectStore("recentPlays").put(toPlain(recent))));
+    await tx.done;
+  }
 }

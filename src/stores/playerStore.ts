@@ -5,12 +5,14 @@ import { DownloadService, type DownloadResult } from "@/playback/download";
 import { LyricSync } from "@/lyrics/parser";
 import { PlaybackQueue } from "@/playback/PlaybackQueue";
 import { useLibraryStore } from "@/stores/libraryStore";
+import { useAccountStore } from "@/stores/accountStore";
 import { useProviderStore } from "@/stores/providerStore";
 import type { AudioQuality, LyricLine, NormalizedSong, ParsedLyric, PlaybackMode } from "@/types/music";
 
 export const usePlayerStore = defineStore("player", () => {
   const providerStore = useProviderStore();
   const libraryStore = useLibraryStore();
+  const accountStore = useAccountStore();
   const engine = shallowRef(createEngine());
   const queue = ref(new PlaybackQueue());
   const currentSong = ref<NormalizedSong | null>(null);
@@ -235,7 +237,9 @@ export const usePlayerStore = defineStore("player", () => {
 
   async function downloadSong(song: NormalizedSong): Promise<DownloadResult> {
     const service = new DownloadService([providerStore.activeProvider, ...providerStore.registry.getFallbacks()]);
-    return service.download(song, "flac");
+    const result = await service.download(song, "flac", { server: Boolean(accountStore.user) });
+    if (result.method === "server") await accountStore.refreshDownloads();
+    return result;
   }
 
   return {

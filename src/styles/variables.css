@@ -18,6 +18,11 @@
   --radius-lg: 16px;
   --safe-bottom: env(safe-area-inset-bottom);
   --safe-top: env(safe-area-inset-top);
+  --browser-bottom-offset: 0px;
+}
+
+:root[data-ios-browser="true"] {
+  --browser-bottom-offset: 78px;
 }
 
 :root[data-theme="light"] {

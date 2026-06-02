@@ -7,6 +7,10 @@ services:
     environment:
       PORT: "8080"
       HOST: "0.0.0.0"
+      DATA_DIR: "/data"
+      DOWNLOAD_DIR: "/data/downloads"
       # Optional: required only when using the Karpov provider.
       # KARPOV_API_KEY: ""
+    volumes:
+      - ./webmusic-data:/data
     restart: unless-stopped

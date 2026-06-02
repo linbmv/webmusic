@@ -3,6 +3,7 @@ import AppShell from "@/views/AppShell.vue";
 import DiscoverView from "@/views/DiscoverView.vue";
 import LibraryView from "@/views/LibraryView.vue";
 import LocalView from "@/views/LocalView.vue";
+import MeView from "@/views/MeView.vue";
 import PlaylistDetailView from "@/views/PlaylistDetailView.vue";
 import SearchView from "@/views/SearchView.vue";
 import SettingsView from "@/views/SettingsView.vue";
@@ -21,6 +22,7 @@ export default createRouter({
         { path: "local", component: LocalView },
         { path: "toplist", component: ToplistView },
         { path: "library", component: LibraryView },
+        { path: "me", component: MeView },
         { path: "settings", component: SettingsView },
         { path: "playlist/:id", component: PlaylistDetailView },
       ],

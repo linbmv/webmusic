@@ -1,13 +1,15 @@
 import type { MusicProvider } from "@/providers/MusicProvider";
 import { PlaybackFallbackService } from "@/playback/fallback";
+import { createServerDownload } from "@/services/accountApi";
 import type { AudioQuality, NormalizedSong } from "@/types/music";
 
-export type DownloadMethod = "blob" | "newtab";
+export type DownloadMethod = "server" | "blob" | "newtab";
 
 export interface DownloadResult {
   ok: boolean;
   method: DownloadMethod;
   fileName: string;
+  streamUrl?: string;
   error?: string;
 }
 
@@ -26,9 +28,13 @@ export class DownloadService {
     this.fallback = new PlaybackFallbackService(providers);
   }
 
-  async download(song: NormalizedSong, quality: AudioQuality = "flac"): Promise<DownloadResult> {
+  async download(song: NormalizedSong, quality: AudioQuality = "flac", options: { server?: boolean } = {}): Promise<DownloadResult> {
     const resolved = await this.fallback.resolvePlayableUrl(song, quality);
     const baseName = sanitizeFileName(`${song.artistText} - ${song.name}`);
+    if (options.server) {
+      const download = await createServerDownload(song, resolved.quality, resolved.url);
+      return { ok: true, method: "server", fileName: `${baseName}.${qualityExtension[download.quality] ?? "mp3"}`, streamUrl: download.streamUrl };
+    }
     try {
       const response = await fetch(resolved.url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

@@ -15,6 +15,19 @@ export const useLibraryStore = defineStore("library", () => {
     recents.value = await repository.listRecentPlays();
   }
 
+  function snapshot(): { favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] } {
+    return {
+      favorites: favorites.value,
+      playlists: playlists.value,
+      recents: recents.value,
+    };
+  }
+
+  async function replaceLibrary(data: { favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] }): Promise<void> {
+    await repository.replaceLibrary(data);
+    await load();
+  }
+
   function isFavorite(stableId: string): boolean {
     return favorites.value.some((item) => item.stableId === stableId);
   }
@@ -75,6 +88,8 @@ export const useLibraryStore = defineStore("library", () => {
     playlists,
     recents,
     load,
+    snapshot,
+    replaceLibrary,
     isFavorite,
     toggleFavorite,
     removeFavorite,

@@ -30,8 +30,10 @@ export default defineConfig({
         target: "https://music-api.gdstudio.xyz/api.php",
         changeOrigin: true,
         secure: true,
-        rewrite: () => "",
+        rewrite: (path) => path.replace(/^\/api\/music\/gdstudio/, ""),
       },
+      "/api/auth": "http://127.0.0.1:8080",
+      "/api/me": "http://127.0.0.1:8080",
     },
   },
 });

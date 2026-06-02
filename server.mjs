@@ -2,6 +2,10 @@ import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import { handleAuth } from "./backend/auth.mjs";
+import { handleDownloads } from "./backend/downloads.mjs";
+import { httpError, sendJson, sendText } from "./backend/http.mjs";
+import { handleLibrary } from "./backend/library.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const distDir = join(root, "dist");
@@ -17,6 +21,9 @@ createServer(async (req, res) => {
   try {
     if (!req.url) return send(res, 400, "Bad request");
     const url = new URL(req.url, `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (await handleAuth(req, res, url)) return;
+    if (await handleLibrary(req, res, url)) return;
+    if (await handleDownloads(req, res, url)) return;
     if (url.pathname.startsWith("/api/music/free")) {
       await proxyMusic(url, res, { prefix: "/api/music/free", baseUrl: upstreams.free });
       return;
@@ -31,7 +38,8 @@ createServer(async (req, res) => {
     }
     serveStatic(url.pathname, res);
   } catch (error) {
-    sendJson(res, 502, { error: error instanceof Error ? error.message : "Proxy failure" });
+    const status = Number(error?.status ?? 502);
+    sendJson(res, status, { error: error instanceof Error ? error.message : "Server failure" });
   }
 }).listen(port, host, () => {
   console.log(`music clone server listening on http://${host}:${port}`);
@@ -62,7 +70,7 @@ function serveStatic(pathname, res) {
   const normalized = normalize(pathname).replace(/^([/\\])+/, "");
   const requested = normalized && normalized !== "." ? join(distDir, normalized) : join(distDir, "index.html");
   const filePath = existsSync(requested) ? requested : join(distDir, "index.html");
-  if (!filePath.startsWith(distDir)) return send(res, 403, "Forbidden");
+  if (!filePath.startsWith(distDir)) throw httpError(403, "Forbidden");
   res.writeHead(200, { "content-type": contentType(filePath) });
   createReadStream(filePath).pipe(res);
 }
@@ -86,11 +94,5 @@ function contentType(filePath) {
 }
 
 function send(res, status, body) {
-  res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-  res.end(body);
-}
-
-function sendJson(res, status, body) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(body));
+  sendText(res, status, body);
 }

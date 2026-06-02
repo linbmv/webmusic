@@ -20,7 +20,7 @@ const ui = useUiStore();
   left: 50%;
   transform: translateX(-50%);
   width: min(420px, calc(100vw - 28px));
-  bottom: calc(148px + var(--safe-bottom));
+  bottom: calc(148px + var(--safe-bottom) + var(--browser-bottom-offset));
   display: grid;
   gap: 8px;
 }

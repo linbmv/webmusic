@@ -75,7 +75,9 @@ async function onDownload(): Promise<void> {
   ui.toast(`${zh.music.downloading}: ${song.name}`);
   try {
     const result = await player.downloadSong(song);
-    if (result.method === "newtab") {
+    if (result.method === "server") {
+      ui.toast(`已保存到服务器: ${result.fileName}`);
+    } else if (result.method === "newtab") {
       ui.toast(`${zh.music.downloadOpened}: ${result.fileName}`);
     } else {
       ui.toast(`${zh.music.downloaded}: ${result.fileName}`);

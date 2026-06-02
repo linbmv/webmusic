@@ -113,7 +113,7 @@ function isDesktopPointer(): boolean {
   z-index: 860;
   left: 8px;
   right: 8px;
-  bottom: calc(var(--safe-bottom) + 8px);
+  bottom: calc(var(--safe-bottom) + var(--browser-bottom-offset) + 8px);
   min-height: 58px;
   display: flex;
   align-items: center;

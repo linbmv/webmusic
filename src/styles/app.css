@@ -5,6 +5,7 @@
 .shell {
   position: relative;
   height: 100vh;
+  height: 100svh;
   height: 100dvh;
   display: flex;
   overflow: hidden;
@@ -202,6 +203,6 @@
 
 @media (max-width: 768px) {
   .page {
-    padding: 12px 12px 112px;
+    padding: 12px 12px calc(112px + var(--browser-bottom-offset));
   }
 }
