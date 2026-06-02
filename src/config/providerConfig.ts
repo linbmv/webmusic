@@ -11,7 +11,7 @@ const baseProvider = {
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
   activeProviderId: "gdStudio",
-  fallbackProviderIds: ["gdStudio", "mock"],
+  fallbackProviderIds: ["freeMusic", "gdStudio"],
   defaultQuality: "320kmp3",
   defaultSources: ["kuwo", "netease"],
   useBffProxy: true,
@@ -73,8 +73,9 @@ export function mergeProviderConfig(input: unknown = {}): ProviderRuntimeConfig 
 }
 
 function normalizeActiveProviderId(input: unknown): ProviderId {
-  if (input === "freeMusic") return defaultProviderConfig.activeProviderId;
-  return isProviderId(input) ? input : defaultProviderConfig.activeProviderId;
+  const providerId = normalizeProviderId(input);
+  if (providerId === "freeMusic") return defaultProviderConfig.activeProviderId;
+  return providerId ?? defaultProviderConfig.activeProviderId;
 }
 
 export function isProviderId(value: unknown): value is ProviderId {
@@ -102,8 +103,14 @@ function mergeProviderEntry(defaultEntry: ProviderConfigEntry, input: unknown): 
 
 function normalizeProviderIds(input: unknown): ProviderId[] {
   if (!Array.isArray(input)) return [...defaultProviderConfig.fallbackProviderIds];
-  const providerIds = input.filter(isProviderId);
+  const providerIds = input.map(normalizeProviderId).filter((id): id is ProviderId => Boolean(id));
   return providerIds.length > 0 ? Array.from(new Set(providerIds)) : [...defaultProviderConfig.fallbackProviderIds];
+}
+
+function normalizeProviderId(input: unknown): ProviderId | null {
+  if (input === "freemusic") return "freeMusic";
+  if (input === "gdstudio") return "gdStudio";
+  return isProviderId(input) ? input : null;
 }
 
 function normalizeSources(input: unknown): MusicSourceId[] {

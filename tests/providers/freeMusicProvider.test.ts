@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FreeMusicProvider } from "@/providers/FreeMusicProvider";
-import type { ProviderConfigEntry } from "@/types/music";
+import type { NormalizedSong, ProviderConfigEntry } from "@/types/music";
 
 const config: ProviderConfigEntry = {
   enabled: true,
@@ -81,7 +81,44 @@ describe("FreeMusicProvider", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ name: "\u9634\u5929", artistText: "\u83ab\u6587\u851a" });
   });
+
+  it("sends FreeMusic sources as repeated query parameters", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/api/music/free/search");
+      expect(url.searchParams.getAll("sources")).toEqual(["kuwo", "netease"]);
+      return jsonResponse({
+        songs: [{ id: "166739", name: "\u9634\u5929", artist: "\u83ab\u6587\u851a", duration: 242, source: "kuwo" }],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new FreeMusicProvider(config, false);
+
+    const result = await provider.search({ q: "\u9634\u5929", sources: ["kuwo", "netease"] });
+
+    expect(result.items[0]).toMatchObject({ providerSongId: "166739", provider: { source: "kuwo" } });
+  });
+
+  it("maps upstream 2000kflac quality to the internal flac value", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ qualities: [{ br: "2000kflac", name: "\u65e0\u635f\u97f3\u8d28 (FLAC)" }] })));
+    const provider = new FreeMusicProvider(config, false);
+
+    const result = await provider.getQualities(songFixture);
+
+    expect(result).toEqual([{ label: "\u65e0\u635f\u97f3\u8d28 (FLAC)", value: "flac", source: "kuwo" }]);
+  });
 });
+
+const songFixture: NormalizedSong = {
+  stableId: "freeMusic:kuwo:song:166739",
+  providerSongId: "166739",
+  provider: { providerId: "freeMusic", source: "kuwo" },
+  name: "\u9634\u5929",
+  artists: ["\u83ab\u6587\u851a"],
+  artistText: "\u83ab\u6587\u851a",
+  durationMs: 242_000,
+  raw: {},
+};
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });

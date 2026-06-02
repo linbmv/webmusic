@@ -93,7 +93,7 @@ export class FreeMusicProvider implements MusicProvider {
       type: req.type ?? "song",
       page,
       pageSize,
-      sources: req.sources?.join(","),
+      sources: req.sources,
     });
     const items = (data.songs ?? data.list ?? data.data ?? []).map((item) => normalizeFreeMusicSong(item as never));
     return { items, page, pageSize, hasMore: Boolean(data.hasMore), total: data.total };
@@ -112,7 +112,7 @@ export class FreeMusicProvider implements MusicProvider {
       type,
       page,
       pageSize,
-      sources: req.sources?.join(","),
+      sources: req.sources,
     });
     const rawItems = typedItems(data, type);
     if (type === "artist" && !rawItems.length) {
@@ -354,7 +354,7 @@ function normalizeQualityItem(input: unknown, source: MusicSourceId): QualityOpt
 function qualityFromValue(value: string, source: MusicSourceId): QualityOption | null {
   if (value === "128kmp3" || value === "128") return { label: "128k MP3", value: "128kmp3", bitrate: 128, source };
   if (value === "320kmp3" || value === "320") return { label: "320k MP3", value: "320kmp3", bitrate: 320, source };
-  if (value.toLowerCase() === "flac") return { label: "FLAC", value: "flac", source };
+  if (value.toLowerCase() === "flac" || value === "2000kflac") return { label: "FLAC", value: "flac", source };
   return null;
 }
 

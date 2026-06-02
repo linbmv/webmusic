@@ -48,7 +48,7 @@ createServer(async (req, res) => {
 async function proxyMusic(url, res, options) {
   const upstreamPath = url.pathname.replace(options.prefix, "") || "";
   const upstreamUrl = new URL(`${options.baseUrl}${upstreamPath}`);
-  url.searchParams.forEach((value, key) => upstreamUrl.searchParams.set(key, value));
+  url.searchParams.forEach((value, key) => upstreamUrl.searchParams.append(key, value));
   const headers = {
     accept: "application/json,text/plain,*/*",
     "user-agent": "music-clone-bff/0.1",

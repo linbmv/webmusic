@@ -7,7 +7,8 @@ export interface HttpClientOptions {
   timeoutMs: number;
 }
 
-type QueryValue = string | number | boolean | undefined;
+type QueryPrimitive = string | number | boolean;
+type QueryValue = QueryPrimitive | readonly QueryPrimitive[] | undefined;
 
 interface Envelope<T> {
   code?: number;
@@ -56,6 +57,10 @@ export class FetchHttpClient {
   private buildUrl(path: string, params: Record<string, QueryValue>): string {
     const url = new URL(`${this.options.baseUrl}${path}`, window.location.origin);
     Object.entries(params).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, String(item)));
+        return;
+      }
       if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
     });
     return url.toString();
