@@ -2,7 +2,28 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import * as accountApi from "@/services/accountApi";
 import { useLibraryStore } from "@/stores/libraryStore";
-import type { ServerDownload } from "@/services/accountApi";
+import {
+  isEmptyLibrary,
+  libraryFingerprint,
+  mergeLibraries,
+  readLibrarySyncMeta,
+  sameLibrary,
+  writeLibrarySyncMeta,
+} from "@/stores/librarySync";
+import type { LibrarySnapshot, ServerDownload } from "@/services/accountApi";
+
+const autoUploadDelayMs = 800;
+const remoteSyncIntervalMs = 30_000;
+const syncedActions = new Set([
+  "toggleFavorite",
+  "removeFavorite",
+  "createPlaylist",
+  "renamePlaylist",
+  "deletePlaylist",
+  "addTrackToPlaylist",
+  "removeTrackFromPlaylist",
+  "recordRecent",
+]);
 
 export const useAccountStore = defineStore("account", () => {
   const user = ref<accountApi.AccountUser | null>(null);
@@ -14,36 +35,42 @@ export const useAccountStore = defineStore("account", () => {
   const lastSyncedAt = ref<number | null>(null);
   const serverLibraryUpdatedAt = ref<number | null>(null);
 
+  let detachLibraryWatcher: (() => void) | null = null;
+  let autoUploadTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoUploadChain = Promise.resolve();
+  let remoteSyncTimer: ReturnType<typeof setInterval> | null = null;
+  let remoteSyncRunning = false;
+
   async function loadMe(): Promise<void> {
-    user.value = await accountApi.getMe();
-    if (user.value) {
-      await refreshDownloads();
-      await refreshServerLibraryStatus();
-    }
+    await run(async () => {
+      user.value = await accountApi.getMe();
+      if (user.value) await initializeAuthenticatedSession();
+      else stopLibrarySync();
+    });
   }
 
   async function signIn(username: string, password: string): Promise<void> {
     await run(async () => {
       user.value = await accountApi.login(username, password);
-      await refreshDownloads();
-      await refreshServerLibraryStatus();
+      await initializeAuthenticatedSession();
     });
   }
 
   async function signUp(username: string, password: string): Promise<void> {
     await run(async () => {
       user.value = await accountApi.register(username, password);
-      await saveLocalLibrary();
-      await refreshDownloads();
+      await initializeAuthenticatedSession();
     });
   }
 
   async function signOut(): Promise<void> {
+    stopLibrarySync();
     await accountApi.logout();
     user.value = null;
     downloads.value = [];
     totalDownloadBytes.value = 0;
     syncStatus.value = "idle";
+    error.value = null;
     serverLibraryUpdatedAt.value = null;
     lastSyncedAt.value = null;
   }
@@ -57,25 +84,16 @@ export const useAccountStore = defineStore("account", () => {
   }
 
   async function saveLocalLibrary(): Promise<void> {
-    if (!user.value) throw new Error("Not signed in");
-    syncStatus.value = "syncing";
     const library = useLibraryStore();
     await library.load();
-    const result = await accountApi.saveLibrary(library.snapshot());
-    lastSyncedAt.value = result.updatedAt;
-    serverLibraryUpdatedAt.value = result.updatedAt;
-    syncStatus.value = "synced";
+    await saveLibrarySnapshot(library.snapshot());
   }
 
   async function replaceLocalLibraryFromServer(): Promise<void> {
-    if (!user.value) throw new Error("Not signed in");
-    syncStatus.value = "syncing";
     const result = await accountApi.getLibrary();
     serverLibraryUpdatedAt.value = result.updatedAt;
     if (!result.updatedAt && isEmptyLibrary(result.library)) throw new Error("No server library snapshot to pull");
-    await useLibraryStore().replaceLibrary(result.library);
-    lastSyncedAt.value = result.updatedAt;
-    syncStatus.value = "synced";
+    await replaceLocalLibrary(result.library, result.updatedAt ?? Date.now());
   }
 
   async function refreshServerLibraryStatus(): Promise<void> {
@@ -89,6 +107,154 @@ export const useAccountStore = defineStore("account", () => {
     const result = await accountApi.listDownloads();
     downloads.value = result.downloads;
     totalDownloadBytes.value = result.totalBytes;
+  }
+
+  async function initializeAuthenticatedSession(): Promise<void> {
+    await refreshDownloads();
+    await syncLibraryAfterAuth();
+    startLibraryAutoSync();
+    startRemoteLibrarySync();
+  }
+
+  async function syncLibraryAfterAuth(): Promise<void> {
+    if (!user.value) return;
+    syncStatus.value = "syncing";
+    const library = useLibraryStore();
+    await library.load();
+    const local = library.snapshot();
+    const server = await accountApi.getLibrary();
+    serverLibraryUpdatedAt.value = server.updatedAt;
+    await reconcileLibrary(local, server.library, server.updatedAt);
+  }
+
+  async function reconcileLibrary(local: LibrarySnapshot, server: LibrarySnapshot, updatedAt: number | null): Promise<void> {
+    if (!updatedAt && isEmptyLibrary(server)) return saveInitialLocalLibrary(local);
+    if (shouldPullServerLibrary(local, server, updatedAt)) return replaceLocalLibrary(server, updatedAt ?? Date.now());
+    if (sameLibrary(local, server)) return markLibrarySynced(updatedAt ?? Date.now(), server);
+    await mergeAndUploadLibrary(local, server);
+  }
+
+  async function saveInitialLocalLibrary(local: LibrarySnapshot): Promise<void> {
+    if (isEmptyLibrary(local)) {
+      syncStatus.value = "idle";
+      return;
+    }
+    await saveLibrarySnapshot(local);
+  }
+
+  function shouldPullServerLibrary(local: LibrarySnapshot, server: LibrarySnapshot, updatedAt: number | null): boolean {
+    if (isEmptyLibrary(local)) return true;
+    if (!user.value || !updatedAt) return false;
+    const meta = readLibrarySyncMeta(user.value.id);
+    const localChanged = !meta || meta.fingerprint !== libraryFingerprint(local);
+    return !localChanged && !sameLibrary(local, server);
+  }
+
+  async function mergeAndUploadLibrary(local: LibrarySnapshot, server: LibrarySnapshot): Promise<void> {
+    const merged = mergeLibraries(local, server);
+    // Merge first when both devices changed, then upload the combined playlist state.
+    if (!sameLibrary(merged, local)) await useLibraryStore().replaceLibrary(merged);
+    await saveLibrarySnapshot(merged);
+  }
+
+  async function replaceLocalLibrary(library: LibrarySnapshot, updatedAt: number): Promise<void> {
+    await useLibraryStore().replaceLibrary(library);
+    markLibrarySynced(updatedAt, library);
+  }
+
+  async function saveLibrarySnapshot(library: LibrarySnapshot): Promise<void> {
+    if (!user.value) throw new Error("Not signed in");
+    syncStatus.value = "syncing";
+    const result = await accountApi.saveLibrary(library);
+    if (result.updatedAt === null) throw new Error("Server did not return library sync timestamp");
+    markLibrarySynced(result.updatedAt, result.library);
+  }
+
+  function markLibrarySynced(updatedAt: number, library: LibrarySnapshot): void {
+    if (!user.value) return;
+    lastSyncedAt.value = updatedAt;
+    serverLibraryUpdatedAt.value = updatedAt;
+    syncStatus.value = "synced";
+    writeLibrarySyncMeta(user.value.id, updatedAt, library);
+  }
+
+  function startLibraryAutoSync(): void {
+    if (detachLibraryWatcher) return;
+    const library = useLibraryStore();
+    detachLibraryWatcher = library.$onAction(({ name, after }) => {
+      if (!syncedActions.has(name)) return;
+      after(() => queueAutoUpload());
+    });
+  }
+
+  function stopLibraryAutoSync(): void {
+    detachLibraryWatcher?.();
+    detachLibraryWatcher = null;
+    if (autoUploadTimer) clearTimeout(autoUploadTimer);
+    autoUploadTimer = null;
+  }
+
+  function startRemoteLibrarySync(): void {
+    if (remoteSyncTimer) return;
+    remoteSyncTimer = setInterval(() => void queueRemoteLibrarySync(), remoteSyncIntervalMs);
+    window.addEventListener("focus", onWindowFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  function stopRemoteLibrarySync(): void {
+    if (remoteSyncTimer) clearInterval(remoteSyncTimer);
+    remoteSyncTimer = null;
+    window.removeEventListener("focus", onWindowFocus);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  function stopLibrarySync(): void {
+    stopLibraryAutoSync();
+    stopRemoteLibrarySync();
+  }
+
+  function onWindowFocus(): void {
+    void queueRemoteLibrarySync();
+  }
+
+  function onVisibilityChange(): void {
+    if (document.visibilityState === "visible") void queueRemoteLibrarySync();
+  }
+
+  async function queueRemoteLibrarySync(): Promise<void> {
+    if (!user.value || remoteSyncRunning) return;
+    remoteSyncRunning = true;
+    try {
+      await syncLibraryAfterAuth();
+    } catch (caught) {
+      handleBackgroundSyncError(caught);
+    } finally {
+      remoteSyncRunning = false;
+    }
+  }
+
+  function queueAutoUpload(): void {
+    if (!user.value) return;
+    if (autoUploadTimer) clearTimeout(autoUploadTimer);
+    autoUploadTimer = setTimeout(() => {
+      autoUploadTimer = null;
+      autoUploadChain = autoUploadChain.catch(() => undefined).then(autoUploadLocalLibrary);
+    }, autoUploadDelayMs);
+  }
+
+  async function autoUploadLocalLibrary(): Promise<void> {
+    if (!user.value) return;
+    try {
+      await saveLocalLibrary();
+    } catch (caught) {
+      handleBackgroundSyncError(caught);
+    }
+  }
+
+  function handleBackgroundSyncError(caught: unknown): void {
+    syncStatus.value = "error";
+    error.value = caught instanceof Error ? caught.message : "Library auto-sync failed";
+    console.error("Library auto-sync failed", caught);
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -124,7 +290,3 @@ export const useAccountStore = defineStore("account", () => {
     refreshServerLibraryStatus,
   };
 });
-
-function isEmptyLibrary(library: accountApi.LibrarySnapshot): boolean {
-  return library.favorites.length === 0 && library.playlists.length === 0 && library.recents.length === 0;
-}

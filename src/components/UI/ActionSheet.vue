@@ -17,13 +17,16 @@
     <template v-else-if="isTrackActions">
       <button class="action-row" @click="onAddToPlaylist"><Plus :size="18" />{{ zh.music.addToPlaylist }}</button>
       <button class="action-row" @click="onDownload"><Download :size="18" />{{ zh.music.download }}</button>
+      <button v-if="canRemoveFromPlaylist" class="action-row danger" @click="onRemoveFromPlaylist">
+        <Trash2 :size="18" />{{ zh.music.removeFromPlaylist }}
+      </button>
     </template>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Download, Plus, X } from "lucide-vue-next";
+import { Download, Plus, Trash2, X } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -38,6 +41,7 @@ const nameInput = ref<HTMLInputElement | null>(null);
 const open = computed(() => ui.actionSheet !== null);
 const isRename = computed(() => ui.actionSheet?.type === "renamePlaylist");
 const isTrackActions = computed(() => ui.actionSheet?.type === "trackActions");
+const canRemoveFromPlaylist = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.playlistId));
 const title = computed(() => (isRename.value ? zh.music.renamePlaylist : zh.music.trackActions));
 
 watch(
@@ -85,6 +89,17 @@ async function onDownload(): Promise<void> {
   } catch (error) {
     ui.toast(`${zh.music.downloadFailed}: ${error instanceof Error ? error.message : song.name}`);
   }
+}
+
+async function onRemoveFromPlaylist(): Promise<void> {
+  if (ui.actionSheet?.type !== "trackActions" || !ui.actionSheet.playlistId) return;
+  const { playlistId, song } = ui.actionSheet;
+  ui.closeActionSheet();
+  await library.removeTrackFromPlaylist(playlistId, song.stableId);
+  ui.toast(`${zh.music.removed}: ${song.name}`, {
+    actionLabel: zh.music.undo,
+    action: () => void library.addTrackToPlaylist(playlistId, song),
+  });
 }
 </script>
 
@@ -161,6 +176,10 @@ async function onDownload(): Promise<void> {
   text-align: left;
   border-radius: var(--radius-sm);
   background: var(--bg-layer);
+}
+
+.action-row.danger {
+  color: #ff453a;
 }
 
 </style>

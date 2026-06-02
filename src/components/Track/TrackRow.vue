@@ -3,6 +3,9 @@
     <div class="swipe-hint dl" :class="{ armed: swipeOffset >= THRESHOLD }" aria-hidden="true">
       <Download :size="18" />
     </div>
+    <div v-if="canDelete" class="swipe-hint del" :class="{ armed: swipeOffset <= -THRESHOLD }" aria-hidden="true">
+      <Trash2 :size="18" />
+    </div>
     <div
       class="track-row"
       :class="{ compact, swiping: dragging }"
@@ -28,7 +31,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Download, MoreHorizontal } from "lucide-vue-next";
+import { Download, MoreHorizontal, Trash2 } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -214,7 +217,9 @@ async function onDelete(): Promise<void> {
 }
 
 .swipe-hint.del {
-  display: none;
+  right: 0;
+  background: rgba(255, 69, 58, 0.26);
+  color: #ff453a;
 }
 
 .swipe-hint.armed {
