@@ -1,6 +1,6 @@
 import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { db, nowMs } from "./storage.mjs";
-import { clearSessionCookie, httpError, parseCookies, readJson, requireMethod, sendJson, sessionCookie } from "./http.mjs";
+import { clearSessionCookie, httpError, isSecureRequest, parseCookies, readJson, requireMethod, sendJson, sessionCookie } from "./http.mjs";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const minPasswordLength = 6;
@@ -55,7 +55,7 @@ async function register(req, res) {
   const user = { id: randomUUID(), username, createdAt: nowMs() };
   insertUser.run(user.id, username, hashPassword(password, salt), salt, user.createdAt);
   const token = createSession(user.id);
-  sendJson(res, 201, { user }, { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds) });
+  sendJson(res, 201, { user }, { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds, { secure: isSecureRequest(req) }) });
   return true;
 }
 
@@ -68,7 +68,7 @@ async function login(req, res) {
   if (!row || !verifyPassword(password, String(row.salt), String(row.password_hash))) throw httpError(401, "Invalid username or password");
   const user = { id: String(row.id), username: String(row.username), createdAt: Number(row.created_at) };
   const token = createSession(user.id);
-  sendJson(res, 200, { user }, { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds) });
+  sendJson(res, 200, { user }, { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds, { secure: isSecureRequest(req) }) });
   return true;
 }
 
@@ -76,7 +76,7 @@ function logout(req, res) {
   requireMethod(req, "POST");
   const token = parseCookies(req.headers.cookie).get("wm_session");
   if (token) deleteSession.run(hashToken(token));
-  sendJson(res, 200, { ok: true }, { "set-cookie": clearSessionCookie() });
+  sendJson(res, 200, { ok: true }, { "set-cookie": clearSessionCookie({ secure: isSecureRequest(req) }) });
   return true;
 }
 

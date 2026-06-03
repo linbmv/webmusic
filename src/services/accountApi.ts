@@ -7,6 +7,9 @@ export interface AccountUser {
 }
 
 export interface LibrarySnapshot {
+  // v2 携带完整歌曲目录 songs，使另一台设备能还原非收藏的歌单歌曲；v1 快照无 version/songs
+  version?: 2;
+  songs?: NormalizedSong[];
   favorites: NormalizedSong[];
   playlists: LocalPlaylist[];
   recents: RecentPlay[];

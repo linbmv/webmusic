@@ -8,6 +8,7 @@ import type {
   ToplistGroup,
 } from "@/types/music";
 import { zh } from "@/i18n/zh";
+import { createClientId } from "@/utils/id";
 
 interface FreeSong {
   id: string | number;
@@ -131,7 +132,7 @@ export function normalizeFreeMusicPlaylist(raw: FreePlaylist): NormalizedPlaylis
 export function normalizeToplist(raw: Record<string, unknown>, source: MusicSourceId): ToplistGroup {
   const tracks = Array.isArray(raw.tracks) ? raw.tracks : [];
   return {
-    id: String(raw.id ?? raw.name ?? crypto.randomUUID()),
+    id: String(raw.id ?? raw.name ?? createClientId("toplist")),
     name: String(raw.name ?? zh.app.toplist),
     source,
     coverUrl: typeof raw.cover === "string" ? raw.cover : undefined,

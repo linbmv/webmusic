@@ -3,6 +3,7 @@ import { createPinia } from "pinia";
 import App from "@/App.vue";
 import router from "@/router";
 import { useAccountStore } from "@/stores/accountStore";
+import { useLibraryStore } from "@/stores/libraryStore";
 import "@/styles/variables.css";
 import "@/styles/app.css";
 
@@ -13,4 +14,17 @@ if (isiOS && !standalone) document.documentElement.dataset.iosBrowser = "true";
 
 const pinia = createPinia();
 createApp(App).use(pinia).use(router).mount("#app");
-void useAccountStore(pinia).loadMe();
+
+// 启动时先把本地曲库读入内存，再触发账号同步：保证 favorite/歌单/最近播放在任意页面即时可用，
+// 并让 IndexedDB 加载失败通过 loadError 暴露，而不是各视图各自静默加载导致空白
+void bootstrap();
+
+async function bootstrap(): Promise<void> {
+  const library = useLibraryStore(pinia);
+  try {
+    await library.load();
+  } catch (caught) {
+    console.error("Library load failed", caught);
+  }
+  await useAccountStore(pinia).loadMe();
+}

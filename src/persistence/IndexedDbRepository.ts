@@ -1,8 +1,11 @@
-import { openDB, type DBSchema } from "idb";
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { defaultLibrarySettings } from "@/config/providerConfig";
+import { createClientId } from "@/utils/id";
 import type { LibrarySettings, LocalPlaylist, NormalizedSong, RecentPlay } from "@/types/music";
 
 interface MusicDb extends DBSchema {
+  // 歌曲元数据唯一目录：收藏、歌单、最近播放共享，按 stableId 反查完整 NormalizedSong
+  librarySongs: { key: string; value: NormalizedSong };
   favoriteSongs: { key: string; value: NormalizedSong };
   playlists: { key: string; value: LocalPlaylist };
   recentPlays: { key: string; value: RecentPlay; indexes: { playedAt: number } };
@@ -10,7 +13,9 @@ interface MusicDb extends DBSchema {
 }
 
 const dbName = "music-clone-library";
+const dbVersion = 2;
 const settingsKey = "default";
+const maxStoredRecents = 60;
 
 // IndexedDB 的结构化克隆无法序列化 Vue 的 reactive 代理（会抛 DataCloneError），
 // 存库前必须剥离响应式包装还原为纯对象；NormalizedSong 全字段 JSON 安全，round-trip 无损
@@ -19,14 +24,38 @@ function toPlain<T>(value: T): T {
 }
 
 export class IndexedDbRepository {
-  private readonly dbPromise = openDB<MusicDb>(dbName, 1, {
-    upgrade(db) {
-      db.createObjectStore("favoriteSongs");
-      db.createObjectStore("playlists");
-      db.createObjectStore("settings");
-      db.createObjectStore("recentPlays", { keyPath: "id" }).createIndex("playedAt", "playedAt");
-    },
-  });
+  private readonly dbPromise = this.open();
+
+  private open(): Promise<IDBPDatabase<MusicDb>> {
+    return openDB<MusicDb>(dbName, dbVersion, {
+      upgrade(db, oldVersion, _newVersion, tx) {
+        if (!db.objectStoreNames.contains("favoriteSongs")) db.createObjectStore("favoriteSongs");
+        if (!db.objectStoreNames.contains("playlists")) db.createObjectStore("playlists");
+        if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings");
+        if (!db.objectStoreNames.contains("recentPlays")) {
+          db.createObjectStore("recentPlays", { keyPath: "id" }).createIndex("playedAt", "playedAt");
+        }
+        if (!db.objectStoreNames.contains("librarySongs")) db.createObjectStore("librarySongs");
+        // v1 → v2：把旧收藏与最近播放的歌曲补入新的歌曲目录，保证歌单读取不再依赖收藏表
+        if (oldVersion < 2) {
+          const songs = tx.objectStore("librarySongs");
+          void tx.objectStore("favoriteSongs").getAll().then((favorites) => {
+            favorites.forEach((song) => void songs.put(song, song.stableId));
+          });
+          void tx.objectStore("recentPlays").getAll().then((recents) => {
+            recents.forEach((recent) => {
+              if (recent.song) void songs.put(recent.song, recent.song.stableId);
+            });
+          });
+        }
+      },
+    });
+  }
+
+  async listLibrarySongs(): Promise<NormalizedSong[]> {
+    const db = await this.dbPromise;
+    return db.getAll("librarySongs");
+  }
 
   async getFavoriteSongIds(): Promise<string[]> {
     const db = await this.dbPromise;
@@ -40,9 +69,14 @@ export class IndexedDbRepository {
 
   async addFavoriteSong(song: NormalizedSong): Promise<void> {
     const db = await this.dbPromise;
-    await db.put("favoriteSongs", toPlain(song), song.stableId);
+    const plain = toPlain(song);
+    const tx = db.transaction(["favoriteSongs", "librarySongs"], "readwrite");
+    tx.objectStore("favoriteSongs").put(plain, plain.stableId);
+    tx.objectStore("librarySongs").put(plain, plain.stableId);
+    await tx.done;
   }
 
+  // 仅移除收藏关系，不删除 librarySongs：歌单或最近播放可能仍引用该歌曲元数据
   async removeFavoriteSong(id: string): Promise<void> {
     const db = await this.dbPromise;
     await db.delete("favoriteSongs", id);
@@ -55,7 +89,7 @@ export class IndexedDbRepository {
 
   async createPlaylist(name: string): Promise<LocalPlaylist> {
     const db = await this.dbPromise;
-    const playlist: LocalPlaylist = { id: crypto.randomUUID(), name, trackIds: [], updatedAt: Date.now() };
+    const playlist: LocalPlaylist = { id: createClientId("playlist"), name, trackIds: [], updatedAt: Date.now() };
     await db.put("playlists", playlist, playlist.id);
     return playlist;
   }
@@ -72,13 +106,18 @@ export class IndexedDbRepository {
     await db.delete("playlists", id);
   }
 
+  // 加入歌单同时把歌曲写入 librarySongs（不再强制等同于收藏），单事务保证歌单与歌曲目录一致
   async addTrackToPlaylist(playlistId: string, song: NormalizedSong): Promise<void> {
     const db = await this.dbPromise;
-    const playlist = await db.get("playlists", playlistId);
+    const plain = toPlain(song);
+    const tx = db.transaction(["playlists", "librarySongs"], "readwrite");
+    const playlists = tx.objectStore("playlists");
+    const playlist = await playlists.get(playlistId);
     if (!playlist) throw new Error(`Playlist not found: ${playlistId}`);
-    const trackIds = Array.from(new Set([...playlist.trackIds, song.stableId]));
-    await db.put("playlists", { ...playlist, trackIds, updatedAt: Date.now() }, playlistId);
-    await this.addFavoriteSong(song);
+    const trackIds = Array.from(new Set([...playlist.trackIds, plain.stableId]));
+    playlists.put({ ...playlist, trackIds, updatedAt: Date.now() }, playlistId);
+    tx.objectStore("librarySongs").put(plain, plain.stableId);
+    await tx.done;
   }
 
   async removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {
@@ -94,9 +133,25 @@ export class IndexedDbRepository {
     return items.sort((a, b) => b.playedAt - a.playedAt).slice(0, limit);
   }
 
+  // 记录最近播放同时写入歌曲目录，并在写入后裁剪超量历史，避免移动端长期占用增长
   async recordRecentPlay(song: NormalizedSong, playedAt = Date.now()): Promise<void> {
     const db = await this.dbPromise;
-    await db.put("recentPlays", toPlain({ id: song.stableId, song, playedAt }));
+    const plain = toPlain(song);
+    const tx = db.transaction(["recentPlays", "librarySongs"], "readwrite");
+    tx.objectStore("recentPlays").put(toPlain({ id: plain.stableId, song: plain, playedAt }));
+    tx.objectStore("librarySongs").put(plain, plain.stableId);
+    await tx.done;
+    await this.pruneRecents();
+  }
+
+  private async pruneRecents(): Promise<void> {
+    const db = await this.dbPromise;
+    const items = await db.getAllFromIndex("recentPlays", "playedAt");
+    if (items.length <= maxStoredRecents) return;
+    const stale = items.sort((a, b) => b.playedAt - a.playedAt).slice(maxStoredRecents);
+    const tx = db.transaction("recentPlays", "readwrite");
+    stale.forEach((recent) => tx.objectStore("recentPlays").delete(recent.id));
+    await tx.done;
   }
 
   async getSettings(): Promise<LibrarySettings> {
@@ -109,17 +164,35 @@ export class IndexedDbRepository {
     await db.put("settings", settings, settingsKey);
   }
 
-  async replaceLibrary(data: { favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] }): Promise<void> {
+  // 整库替换（同步拉取/合并后调用）：同步排队所有 clear/put 后只等待 tx.done，
+  // 避免在 await Promise.all(clear) 后再排队写入触发部分浏览器（尤其移动端）事务失活
+  async replaceLibrary(data: { songs: NormalizedSong[]; favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] }): Promise<void> {
     const db = await this.dbPromise;
-    const tx = db.transaction(["favoriteSongs", "playlists", "recentPlays"], "readwrite");
-    await Promise.all([
-      tx.objectStore("favoriteSongs").clear(),
-      tx.objectStore("playlists").clear(),
-      tx.objectStore("recentPlays").clear(),
-    ]);
-    await Promise.all(data.favorites.map((song) => tx.objectStore("favoriteSongs").put(toPlain(song), song.stableId)));
-    await Promise.all(data.playlists.map((playlist) => tx.objectStore("playlists").put(toPlain(playlist), playlist.id)));
-    await Promise.all(data.recents.map((recent) => tx.objectStore("recentPlays").put(toPlain(recent))));
+    const tx = db.transaction(["librarySongs", "favoriteSongs", "playlists", "recentPlays"], "readwrite");
+    const songs = tx.objectStore("librarySongs");
+    const favorites = tx.objectStore("favoriteSongs");
+    const playlists = tx.objectStore("playlists");
+    const recents = tx.objectStore("recentPlays");
+    songs.clear();
+    favorites.clear();
+    playlists.clear();
+    recents.clear();
+    // 合并所有歌曲元数据来源（独立目录 + 收藏 + 最近播放），保证歌单 trackId 都能反查到歌曲
+    const songCatalog = mergeSongs(data.songs, data.favorites, data.recents.map((recent) => recent.song));
+    songCatalog.forEach((song) => songs.put(toPlain(song), song.stableId));
+    data.favorites.forEach((song) => favorites.put(toPlain(song), song.stableId));
+    data.playlists.forEach((playlist) => playlists.put(toPlain(playlist), playlist.id));
+    data.recents.forEach((recent) => recents.put(toPlain(recent)));
     await tx.done;
   }
+}
+
+function mergeSongs(...groups: Array<Array<NormalizedSong | undefined>>): NormalizedSong[] {
+  const byId = new Map<string, NormalizedSong>();
+  groups.forEach((group) => {
+    group.forEach((song) => {
+      if (song?.stableId) byId.set(song.stableId, song);
+    });
+  });
+  return Array.from(byId.values());
 }

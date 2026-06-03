@@ -52,6 +52,8 @@ export const zh = {
     localScan: "\u626b\u63cf\u672c\u5730\u97f3\u4e50",
     localWebdav: "\u8fde\u63a5 WebDAV",
     localEmpty: "\u8fd8\u6ca1\u6709\u672c\u5730\u97f3\u4e50\uff0c\u70b9\u51fb\u4e0a\u65b9\u626b\u63cf\u6dfb\u52a0",
+    localDownloads: "\u670d\u52a1\u7aef\u4e0b\u8f7d",
+    localDownloadsEmpty: "\u767b\u5f55\u540e\u4e0b\u8f7d\u7684\u6b4c\u66f2\u4f1a\u663e\u793a\u5728\u8fd9\u91cc",
     defaultQuality: "\u9ed8\u8ba4\u97f3\u8d28",
     wordLyric: "\u9010\u5b57\u6b4c\u8bcd",
     activeProvider: "\u5f53\u524d Provider",

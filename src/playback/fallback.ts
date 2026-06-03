@@ -9,6 +9,10 @@ export class PlaybackFallbackService {
   constructor(private readonly providers: MusicProvider[]) {}
 
   async resolvePlayableUrl(song: NormalizedSong, quality: AudioQuality): Promise<AudioUrlResult> {
+    // 预解析直链（服务端下载 streamUrl / 本地文件 blob）优先，跳过 provider 解析直接播放
+    if (song.directUrl) {
+      return { url: song.directUrl, direct: true, providerId: song.provider.providerId, source: song.provider.source, quality };
+    }
     // 从请求音质起按阶梯向下尝试，确保跨所有源拿到当前可用的最高音质
     const startIndex = Math.max(0, qualityLadder.indexOf(quality));
     const qualities = qualityLadder.slice(startIndex);

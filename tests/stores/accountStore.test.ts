@@ -2,12 +2,13 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as accountApi from "@/services/accountApi";
 import { useAccountStore } from "@/stores/accountStore";
+import { mergeLibraries, writeLibrarySyncMeta } from "@/stores/librarySync";
 import { notifyLibraryChanged } from "@/stores/librarySyncBus";
 import type { LibrarySnapshot } from "@/services/accountApi";
 import type { NormalizedSong } from "@/types/music";
 
 const libraryMock = vi.hoisted(() => {
-  const empty = (): LibrarySnapshot => ({ favorites: [], playlists: [], recents: [] });
+  const empty = (): LibrarySnapshot => ({ version: 2, songs: [], favorites: [], playlists: [], recents: [] });
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   type Listener = (context: { name: string; after: (callback: () => void) => void }) => void;
   let snapshot: LibrarySnapshot = empty();
@@ -129,11 +130,8 @@ describe("accountStore", () => {
   it("merges local and server libraries instead of overwriting either device", async () => {
     const local = snapshotWithSong("pc", 30);
     const server = snapshotWithSong("phone", 20);
-    const merged = {
-      favorites: [...server.favorites, ...local.favorites],
-      playlists: [...local.playlists, ...server.playlists],
-      recents: [],
-    };
+    // 首次登录无 baseline，走并集兜底合并；用真实 mergeLibraries 构造期望，避免硬编码字段顺序
+    const merged = mergeLibraries(local, server);
     libraryMock.setSnapshot(local);
     vi.mocked(accountApi.getLibrary).mockResolvedValue({ library: server, updatedAt: 200 });
 
@@ -149,15 +147,30 @@ describe("accountStore", () => {
 
     await expect(account.pullLibrary()).rejects.toThrow("No server library snapshot to pull");
   });
+
+  it("uploads an emptied library so a full clear propagates across devices", async () => {
+    // 预置上次同步基线：服务端仍是该状态，本机已清空，应上传空库让删除生效
+    const baselineLibrary = snapshotWithSong("gone", 10);
+    writeLibrarySyncMeta(user.id, 50, baselineLibrary);
+    libraryMock.setSnapshot(emptyLibrary());
+    vi.mocked(accountApi.getLibrary).mockResolvedValue({ library: baselineLibrary, updatedAt: 50 });
+
+    await useAccountStore().signIn("alice", "secret1");
+
+    expect(libraryMock.store.replaceLibrary).not.toHaveBeenCalled();
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(emptyLibrary());
+  });
 });
 
 function emptyLibrary(): LibrarySnapshot {
-  return { favorites: [], playlists: [], recents: [] };
+  return { version: 2, songs: [], favorites: [], playlists: [], recents: [] };
 }
 
 function snapshotWithSong(id: string, updatedAt: number): LibrarySnapshot {
   const song = testSong(id);
   return {
+    version: 2,
+    songs: [song],
     favorites: [song],
     playlists: [{ id: `playlist-${id}`, name: `Playlist ${id}`, trackIds: [song.stableId], updatedAt }],
     recents: [],

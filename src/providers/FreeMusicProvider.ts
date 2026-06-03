@@ -1,5 +1,6 @@
 import { parseLyrics } from "@/lyrics/parser";
 import { zh } from "@/i18n/zh";
+import { createClientId } from "@/utils/id";
 import { FetchHttpClient } from "@/providers/http";
 import type { MusicProvider } from "@/providers/MusicProvider";
 import {
@@ -297,7 +298,7 @@ function typedItems(data: TypedSearchResponse, type: string): unknown[] {
 function normalizeTypedSearchItem(input: unknown, type: string): SearchListItem {
   const raw = isRecord(input) ? input : {};
   const source = asSource(raw.source);
-  const id = String(raw.id ?? raw.albumid ?? raw.artistid ?? raw.name ?? crypto.randomUUID());
+  const id = String(raw.id ?? raw.albumid ?? raw.artistid ?? raw.name ?? createClientId("fm"));
   const title = decodeText(String(raw.name ?? raw.title ?? id));
   const subtitle = typedSubtitle(raw, type);
   const coverUrl = stringValue(raw.cover) ?? stringValue(raw.pic);

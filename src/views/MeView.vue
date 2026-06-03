@@ -2,25 +2,25 @@
   <div class="page me-page">
     <header class="page-header">
       <div>
-        <h1 class="page-title">Account</h1>
-        <p class="page-subtitle">Sign in to sync library data and server downloads.</p>
+        <h1 class="page-title">账号</h1>
+        <p class="page-subtitle">登录后同步收藏、歌单、最近播放和服务端下载。</p>
       </div>
     </header>
 
     <section v-if="!account.user" class="account-panel">
       <div class="field-grid">
         <label>
-          <span>Username</span>
+          <span>用户名</span>
           <input v-model="username" autocomplete="username" />
         </label>
         <label>
-          <span>Password</span>
+          <span>密码</span>
           <input v-model="password" type="password" autocomplete="current-password" />
         </label>
       </div>
       <div class="button-row">
-        <button class="primary-btn" :disabled="account.loading || !canSubmit" @click="signIn">Sign in</button>
-        <button class="secondary-btn" :disabled="account.loading || !canSubmit" @click="signUp">Create account</button>
+        <button class="primary-btn" :disabled="account.loading || !canSubmit" @click="signIn">登录</button>
+        <button class="secondary-btn" :disabled="account.loading || !canSubmit" @click="signUp">创建账号</button>
       </div>
       <p v-if="account.error" class="error-text">{{ account.error }}</p>
     </section>
@@ -28,31 +28,33 @@
     <template v-else>
       <section class="account-panel signed-in">
         <div>
-          <span class="muted small-label">Current user</span>
+          <span class="muted small-label">当前用户</span>
           <strong>{{ account.user.username }}</strong>
         </div>
-        <button class="secondary-btn" @click="signOut">Sign out</button>
+        <button class="secondary-btn" @click="signOut">退出登录</button>
       </section>
 
       <section class="section sync-panel">
         <div class="section-head">
-          <h2 class="section-title">Sync</h2>
+          <h2 class="section-title">曲库同步</h2>
           <span class="status-dot" :class="account.syncStatus">{{ statusText }}</span>
         </div>
         <div class="button-row">
-          <button class="primary-btn" :disabled="account.loading" @click="pushLibrary">Upload this device</button>
-          <button class="secondary-btn" :disabled="account.loading" @click="pullLibrary">Pull from server</button>
+          <button class="primary-btn" :disabled="account.loading" @click="pushLibrary">上传本机曲库</button>
+          <button class="secondary-btn" :disabled="account.loading" @click="pullLibrary">拉取服务端曲库</button>
         </div>
-        <p class="muted sync-copy">Pull replaces this device's favorites, playlists, and recent plays with the server snapshot.</p>
+        <p class="muted sync-copy">同步包含收藏、歌单、最近播放和歌单歌曲目录；删除操作会在多设备间生效。</p>
+        <p v-if="syncTimeText" class="muted sync-copy">{{ syncTimeText }}</p>
+        <p v-if="account.error" class="error-text">{{ account.error }}</p>
       </section>
 
       <section class="section downloads-panel">
         <div class="section-head">
           <div>
-            <h2 class="section-title">Server Downloads</h2>
-            <p class="muted size-copy">{{ account.downloads.length }} tracks, {{ formatBytes(account.totalDownloadBytes) }}</p>
+            <h2 class="section-title">服务端下载</h2>
+            <p class="muted size-copy">{{ account.downloads.length }} {{ zh.common.songUnit }}，{{ formatBytes(account.totalDownloadBytes) }}</p>
           </div>
-          <button class="text-btn" @click="refreshDownloads">Refresh</button>
+          <button class="text-btn" @click="refreshDownloads">刷新</button>
         </div>
         <div class="download-list">
           <a v-for="item in account.downloads" :key="item.id" class="download-row" :href="item.streamUrl" target="_blank" rel="noopener">
@@ -62,7 +64,7 @@
               <small class="ellipsis">{{ item.song.artistText }} · {{ item.quality }} · {{ formatBytes(item.sizeBytes) }}</small>
             </span>
           </a>
-          <p v-if="!account.downloads.length" class="muted empty">No server downloads yet.</p>
+          <p v-if="!account.downloads.length" class="muted empty">还没有服务端下载歌曲。</p>
         </div>
       </section>
     </template>
@@ -71,6 +73,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { zh } from "@/i18n/zh";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLibraryStore } from "@/stores/libraryStore";
 import type { NormalizedSong } from "@/types/music";
@@ -81,10 +84,16 @@ const username = ref("");
 const password = ref("");
 const canSubmit = computed(() => username.value.trim().length > 0 && password.value.length >= 6);
 const statusText = computed(() => {
-  if (account.syncStatus === "syncing") return "Syncing";
-  if (account.syncStatus === "synced") return "Synced";
-  if (account.syncStatus === "error") return "Failed";
-  return "Idle";
+  if (account.syncStatus === "syncing") return "同步中";
+  if (account.syncStatus === "synced") return "已同步";
+  if (account.syncStatus === "error") return "失败";
+  return "空闲";
+});
+const syncTimeText = computed(() => {
+  if (!account.lastSyncedAt && !account.serverLibraryUpdatedAt) return "";
+  const local = account.lastSyncedAt ? `本机上次同步：${formatDate(account.lastSyncedAt)}` : "本机尚未同步";
+  const server = account.serverLibraryUpdatedAt ? `服务端快照：${formatDate(account.serverLibraryUpdatedAt)}` : "服务端暂无快照";
+  return `${local} · ${server}`;
 });
 
 onMounted(() => void account.loadMe());
@@ -107,12 +116,16 @@ async function pushLibrary(): Promise<void> {
 
 async function pullLibrary(): Promise<void> {
   await library.load();
-  if (hasLocalLibrary() && !window.confirm("Pulling from server will replace this device's library. Continue?")) return;
+  if (hasLocalLibrary() && !window.confirm("拉取服务端曲库会替换本机当前曲库，是否继续？")) return;
   await account.pullLibrary();
 }
 
 async function refreshDownloads(): Promise<void> {
   await account.refreshDownloads();
+}
+
+function formatDate(value: number): string {
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
 }
 
 function coverStyle(song: NormalizedSong): Record<string, string> {

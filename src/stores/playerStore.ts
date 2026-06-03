@@ -235,9 +235,9 @@ export const usePlayerStore = defineStore("player", () => {
     return lyricSync.value ? lyricSync.value.getActiveLine(timeMs) : null;
   }
 
-  async function downloadSong(song: NormalizedSong): Promise<DownloadResult> {
+  async function downloadSong(song: NormalizedSong, fallbackWindow?: Window | null): Promise<DownloadResult> {
     const service = new DownloadService([providerStore.activeProvider, ...providerStore.registry.getFallbacks()]);
-    const result = await service.download(song, "flac", { server: Boolean(accountStore.user) });
+    const result = await service.download(song, "flac", { server: Boolean(accountStore.user), fallbackWindow });
     if (result.method === "server") await accountStore.refreshDownloads();
     return result;
   }

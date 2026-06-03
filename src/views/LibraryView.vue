@@ -9,20 +9,28 @@
     </header>
 
     <section class="library-shortcuts section" :aria-label="zh.app.library">
-      <button class="library-shortcut" type="button">
+      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'favorites' }" @click="toggleTab('favorites')">
         <span class="shortcut-icon"><Heart :size="17" /></span>
         <span class="shortcut-copy">
           <strong>{{ zh.music.favoriteSongs }}</strong>
           <small>{{ library.favorites.length }} {{ zh.common.songUnit }}</small>
         </span>
       </button>
-      <button class="library-shortcut" type="button">
+      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'recent' }" @click="toggleTab('recent')">
         <span class="shortcut-icon"><Clock3 :size="17" /></span>
         <span class="shortcut-copy">
           <strong>{{ zh.music.recent }}</strong>
           <small>{{ library.recents.length }} {{ zh.common.songUnit }}</small>
         </span>
       </button>
+    </section>
+
+    <section v-if="activeTab === 'favorites'" class="section">
+      <div class="section-head">
+        <h2 class="section-title">{{ zh.music.favoriteSongs }}</h2>
+      </div>
+      <TrackList v-if="favoriteRows.length" :items="favoriteRows" is-favorites />
+      <p v-else class="muted empty">{{ zh.music.emptyPlaylist }}</p>
     </section>
 
     <section class="section">
@@ -57,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { Clock3, Heart, ListMusic, Plus } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import { zh } from "@/i18n/zh";
@@ -71,11 +79,20 @@ import type { TrackRowItem } from "@/types/ui";
 const ui = useUiStore();
 const library = useLibraryStore();
 const router = useRouter();
+const activeTab = ref<"none" | "favorites" | "recent">("none");
 const fallbackPlaylists: LocalPlaylist[] = [
   { id: "fallback-night", name: zh.names.nightWalk, trackIds: [], updatedAt: 0 },
   { id: "fallback-slow", name: zh.names.chineseSlow, trackIds: [], updatedAt: 0 },
 ];
 const visiblePlaylists = computed(() => library.playlists.length ? library.playlists : fallbackPlaylists);
+const favoriteRows = computed<TrackRowItem[]>(() => library.favorites.map((song) => ({
+  id: song.stableId,
+  name: song.name,
+  artistText: song.artistText,
+  source: getSourceTag(song.provider.source),
+  cover: song.coverUrl ?? song.album?.coverUrl ?? "",
+  song,
+})));
 const recentRows = computed<TrackRowItem[]>(() => library.recents.map((recent) => ({
   id: recent.id,
   name: recent.song.name,
@@ -84,6 +101,10 @@ const recentRows = computed<TrackRowItem[]>(() => library.recents.map((recent) =
   cover: recent.song.coverUrl ?? recent.song.album?.coverUrl ?? "",
   song: recent.song,
 })));
+
+function toggleTab(tab: "favorites" | "recent"): void {
+  activeTab.value = activeTab.value === tab ? "none" : tab;
+}
 
 async function createLocalPlaylist(): Promise<void> {
   const playlist = await library.createPlaylist(`${zh.music.playlists} ${library.playlists.length + 1}`);
@@ -130,6 +151,11 @@ onMounted(() => void library.load());
 .library-shortcut {
   min-height: 54px;
   padding: 9px 10px;
+}
+
+.library-shortcut.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .shortcut-icon,

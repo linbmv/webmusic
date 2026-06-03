@@ -7,15 +7,20 @@ import type { LibrarySnapshot } from "@/services/accountApi";
 import type { LocalPlaylist, NormalizedSong, RecentPlay } from "@/types/music";
 
 const repositoryMock = vi.hoisted(() => {
+  let songs: NormalizedSong[] = [];
   let favorites: NormalizedSong[] = [];
   let playlists: LocalPlaylist[] = [];
   let recents: RecentPlay[] = [];
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   class IndexedDbRepository {
+    async listLibrarySongs(): Promise<NormalizedSong[]> { return clone(songs); }
     async listFavoriteSongs(): Promise<NormalizedSong[]> { return clone(favorites); }
     async listPlaylists(): Promise<LocalPlaylist[]> { return clone(playlists); }
     async listRecentPlays(): Promise<RecentPlay[]> { return clone(recents); }
-    async addFavoriteSong(song: NormalizedSong): Promise<void> { favorites = upsertBy(favorites, song, "stableId"); }
+    async addFavoriteSong(song: NormalizedSong): Promise<void> {
+      favorites = upsertBy(favorites, song, "stableId");
+      songs = upsertBy(songs, song, "stableId");
+    }
     async removeFavoriteSong(id: string): Promise<void> { favorites = favorites.filter((song) => song.stableId !== id); }
     async createPlaylist(name: string): Promise<LocalPlaylist> {
       const playlist = { id: `playlist-${playlists.length + 1}`, name, trackIds: [], updatedAt: 1 };
@@ -27,7 +32,7 @@ const repositoryMock = vi.hoisted(() => {
     }
     async deletePlaylist(id: string): Promise<void> { playlists = playlists.filter((playlist) => playlist.id !== id); }
     async addTrackToPlaylist(playlistId: string, song: NormalizedSong): Promise<void> {
-      favorites = upsertBy(favorites, song, "stableId");
+      songs = upsertBy(songs, song, "stableId");
       playlists = playlists.map((playlist) => playlist.id === playlistId
         ? { ...playlist, trackIds: Array.from(new Set([...playlist.trackIds, song.stableId])), updatedAt: 3 }
         : playlist);
@@ -37,8 +42,12 @@ const repositoryMock = vi.hoisted(() => {
         ? { ...playlist, trackIds: playlist.trackIds.filter((trackId) => trackId !== songId), updatedAt: 4 }
         : playlist);
     }
-    async recordRecentPlay(song: NormalizedSong, playedAt = 1): Promise<void> { recents = [{ id: song.stableId, song, playedAt }]; }
-    async replaceLibrary(data: LibrarySnapshot): Promise<void> {
+    async recordRecentPlay(song: NormalizedSong, playedAt = 1): Promise<void> {
+      recents = [{ id: song.stableId, song, playedAt }];
+      songs = upsertBy(songs, song, "stableId");
+    }
+    async replaceLibrary(data: { songs: NormalizedSong[]; favorites: NormalizedSong[]; playlists: LocalPlaylist[]; recents: RecentPlay[] }): Promise<void> {
+      songs = clone(data.songs);
       favorites = clone(data.favorites);
       playlists = clone(data.playlists);
       recents = clone(data.recents);
@@ -47,6 +56,7 @@ const repositoryMock = vi.hoisted(() => {
   return {
     IndexedDbRepository,
     reset: () => {
+      songs = [];
       favorites = [];
       playlists = [];
       recents = [];
@@ -98,10 +108,40 @@ describe("account and real library store sync", () => {
       playlists: [expect.objectContaining({ name: "Synced" })],
     }));
   });
+
+  it("keeps a playlist track readable even when it is not favorited", async () => {
+    await useAccountStore().signIn("alice", "secret1");
+    const library = useLibraryStore();
+    const playlist = await library.createPlaylist("Mix");
+    const song = playlistSong("p1");
+
+    await library.addTrackToPlaylist(playlist.id, song);
+    await vi.advanceTimersByTimeAsync(800);
+
+    // 未收藏也应能从歌曲目录反查到歌单曲目
+    expect(library.isFavorite(song.stableId)).toBe(false);
+    expect(library.listPlaylistTracks(playlist.id).map((item) => item.stableId)).toEqual([song.stableId]);
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(expect.objectContaining({
+      version: 2,
+      songs: expect.arrayContaining([expect.objectContaining({ stableId: song.stableId })]),
+    }));
+  });
 });
 
 function emptyLibrary(): LibrarySnapshot {
-  return { favorites: [], playlists: [], recents: [] };
+  return { version: 2, songs: [], favorites: [], playlists: [], recents: [] };
+}
+
+function playlistSong(id: string): NormalizedSong {
+  return {
+    stableId: `mock:netease:song:${id}`,
+    providerSongId: id,
+    provider: { providerId: "mock", source: "netease" },
+    name: `Song ${id}`,
+    artists: ["Artist"],
+    artistText: "Artist",
+    raw: {},
+  };
 }
 
 function upsertBy<T, K extends keyof T>(items: T[], item: T, key: K): T[] {

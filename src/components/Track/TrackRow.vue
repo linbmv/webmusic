@@ -14,6 +14,10 @@
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerCancel"
+      @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
+      @touchend="onTouchEnd"
+      @touchcancel="onTouchCancel"
       @contextmenu.prevent="onLongPress"
     >
       <div v-if="item.cover" class="track-cover" :style="{ backgroundImage: `url(${item.cover})` }" />
@@ -34,6 +38,7 @@ import { computed, ref } from "vue";
 import { Download, MoreHorizontal, Trash2 } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
+import { useAccountStore } from "@/stores/accountStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
 import type { TrackRowItem } from "@/types/ui";
@@ -47,6 +52,7 @@ const props = defineProps<{
 const emit = defineEmits<{ play: [] }>();
 
 const ui = useUiStore();
+const account = useAccountStore();
 const player = usePlayerStore();
 const library = useLibraryStore();
 
@@ -60,6 +66,8 @@ const dragging = ref(false);
 const moved = ref(false);
 const startX = ref(0);
 const startY = ref(0);
+const touchStartX = ref(0);
+const touchStartY = ref(0);
 const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 
 // 只有处于歌单或收藏上下文时才允许左滑删除；搜索结果等无删除语义
@@ -138,8 +146,38 @@ function onMore(): void {
   if (props.item.song) ui.openTrackActions(props.item.song, props.playlistId);
 }
 
+function onTouchStart(event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  touchStartX.value = event.touches[0].clientX;
+  touchStartY.value = event.touches[0].clientY;
+  moved.value = false;
+  clearLongPress();
+  longPressTimer.value = setTimeout(() => {
+    if (!moved.value) onLongPress();
+  }, 560);
+}
+
+function onTouchMove(event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  const deltaX = event.touches[0].clientX - touchStartX.value;
+  const deltaY = event.touches[0].clientY - touchStartY.value;
+  if (Math.abs(deltaX) > TAP_SLOP || Math.abs(deltaY) > TAP_SLOP) {
+    moved.value = true;
+    clearLongPress();
+  }
+}
+
+function onTouchEnd(): void {
+  clearLongPress();
+}
+
+function onTouchCancel(): void {
+  clearLongPress();
+}
+
 // 长按 = 加入歌单
 function onLongPress(): void {
+  clearLongPress();
   void addToPlaylistFlow();
 }
 
@@ -147,17 +185,24 @@ function onLongPress(): void {
 async function downloadFlow(): Promise<void> {
   const song = props.item.song;
   if (!song) return;
+  const fallbackWindow = playerShouldPreopenWindow() ? window.open("about:blank", "_blank", "noopener") : null;
   ui.toast(`${zh.music.downloading}: ${song.name}`);
   try {
-    const result = await player.downloadSong(song);
+    const result = await player.downloadSong(song, fallbackWindow);
     if (result.method === "newtab") {
       ui.toast(`${zh.music.downloadOpened}: ${result.fileName}`);
     } else {
       ui.toast(`${zh.music.downloaded}: ${result.fileName}`);
     }
   } catch (error) {
+    fallbackWindow?.close();
     ui.toast(`${zh.music.downloadFailed}: ${error instanceof Error ? error.message : song.name}`);
   }
+}
+
+function playerShouldPreopenWindow(): boolean {
+  // 未登录时纯前端下载可能因 CORS 失败后走新标签兜底；移动端必须在用户手势内预开窗口，避免 await 后被拦截
+  return !account.user;
 }
 
 async function addToPlaylistFlow(): Promise<void> {
@@ -240,6 +285,8 @@ async function onDelete(): Promise<void> {
   cursor: pointer;
   touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .track-row.compact {

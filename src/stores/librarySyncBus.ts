@@ -1,15 +1,14 @@
 type LibraryChangeListener = () => void;
 
-let listener: LibraryChangeListener | null = null;
+const listeners = new Set<LibraryChangeListener>();
 
-export function onLibraryChanged(nextListener: LibraryChangeListener): () => void {
-  const current = nextListener;
-  listener = current;
+export function onLibraryChanged(listener: LibraryChangeListener): () => void {
+  listeners.add(listener);
   return () => {
-    if (listener === current) listener = null;
+    listeners.delete(listener);
   };
 }
 
 export function notifyLibraryChanged(): void {
-  listener?.();
+  listeners.forEach((listener) => listener());
 }

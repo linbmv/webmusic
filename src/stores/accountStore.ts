@@ -6,6 +6,7 @@ import {
   isEmptyLibrary,
   libraryFingerprint,
   mergeLibraries,
+  mergeLibrariesWithBaseline,
   readLibrarySyncMeta,
   sameLibrary,
   writeLibrarySyncMeta,
@@ -120,9 +121,27 @@ export const useAccountStore = defineStore("account", () => {
 
   async function reconcileLibrary(local: LibrarySnapshot, server: LibrarySnapshot, updatedAt: number | null): Promise<void> {
     if (!updatedAt && isEmptyLibrary(server)) return saveInitialLocalLibrary(local);
-    if (shouldPullServerLibrary(local, server, updatedAt)) return replaceLocalLibrary(server, updatedAt ?? Date.now());
+    // 本地为空且无同步基线：视为新设备首次登录，拉取服务端，避免误把空库上传清空云端
+    if (isEmptyLibrary(local) && !hasSyncBaseline()) return replaceLocalLibrary(server, updatedAt ?? Date.now());
     if (sameLibrary(local, server)) return markLibrarySynced(updatedAt ?? Date.now(), server);
-    await mergeAndUploadLibrary(local, server);
+    await mergeBaseline(local, server, updatedAt);
+  }
+
+  function hasSyncBaseline(): boolean {
+    return Boolean(user.value && readLibrarySyncMeta(user.value.id));
+  }
+
+  // 基于上次同步基线判断变更方向：单端变更直接拉/推，双端都变才三方合并（删除可生效）
+  async function mergeBaseline(local: LibrarySnapshot, server: LibrarySnapshot, updatedAt: number | null): Promise<void> {
+    const meta = user.value ? readLibrarySyncMeta(user.value.id) : null;
+    if (!meta) return mergeAndUploadLibrary(local, server);
+    const localChanged = meta.fingerprint !== libraryFingerprint(local);
+    const serverChanged = meta.fingerprint !== libraryFingerprint(server);
+    if (!localChanged && serverChanged) return replaceLocalLibrary(server, updatedAt ?? Date.now());
+    if (localChanged && !serverChanged) return saveLibrarySnapshot(local);
+    const merged = mergeLibrariesWithBaseline(local, server, meta.baseline);
+    if (!sameLibrary(merged, local)) await useLibraryStore().replaceLibrary(merged);
+    await saveLibrarySnapshot(merged);
   }
 
   async function saveInitialLocalLibrary(local: LibrarySnapshot): Promise<void> {
@@ -133,17 +152,9 @@ export const useAccountStore = defineStore("account", () => {
     await saveLibrarySnapshot(local);
   }
 
-  function shouldPullServerLibrary(local: LibrarySnapshot, server: LibrarySnapshot, updatedAt: number | null): boolean {
-    if (isEmptyLibrary(local)) return true;
-    if (!user.value || !updatedAt) return false;
-    const meta = readLibrarySyncMeta(user.value.id);
-    const localChanged = !meta || meta.fingerprint !== libraryFingerprint(local);
-    return !localChanged && !sameLibrary(local, server);
-  }
-
+  // 无基线时的兜底：并集合并后上传，保证不丢数据；下次同步会写入基线，删除语义随之恢复
   async function mergeAndUploadLibrary(local: LibrarySnapshot, server: LibrarySnapshot): Promise<void> {
     const merged = mergeLibraries(local, server);
-    // Merge first when both devices changed, then upload the combined playlist state.
     if (!sameLibrary(merged, local)) await useLibraryStore().replaceLibrary(merged);
     await saveLibrarySnapshot(merged);
   }

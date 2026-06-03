@@ -13,6 +13,11 @@ export interface DownloadResult {
   error?: string;
 }
 
+export interface DownloadOptions {
+  server?: boolean;
+  fallbackWindow?: Window | null;
+}
+
 const qualityExtension: Record<AudioQuality, string> = {
   "128kmp3": "mp3",
   "320kmp3": "mp3",
@@ -20,7 +25,7 @@ const qualityExtension: Record<AudioQuality, string> = {
 };
 
 // 浏览器纯前端无法静默写任意磁盘路径：只能触发"另存为"下载。
-// 第三方音频源常有 CORS 限制，fetch 取字节可能失败，此时兜底为新标签打开供用户右键另存。
+// 第三方音频源常有 CORS 限制，fetch 取字节可能失败，此时兜底为新标签打开供用户另存。
 export class DownloadService {
   private readonly fallback: PlaybackFallbackService;
 
@@ -28,10 +33,11 @@ export class DownloadService {
     this.fallback = new PlaybackFallbackService(providers);
   }
 
-  async download(song: NormalizedSong, quality: AudioQuality = "flac", options: { server?: boolean } = {}): Promise<DownloadResult> {
+  async download(song: NormalizedSong, quality: AudioQuality = "flac", options: DownloadOptions = {}): Promise<DownloadResult> {
     const resolved = await this.fallback.resolvePlayableUrl(song, quality);
     const baseName = sanitizeFileName(`${song.artistText} - ${song.name}`);
     if (options.server) {
+      closeUnusedWindow(options.fallbackWindow);
       const download = await createServerDownload(song, resolved.quality, resolved.url);
       return { ok: true, method: "server", fileName: `${baseName}.${qualityExtension[download.quality] ?? "mp3"}`, streamUrl: download.streamUrl };
     }
@@ -43,11 +49,12 @@ export class DownloadService {
       const fileName = `${baseName}.${ext}`;
       const blobUrl = URL.createObjectURL(blob);
       triggerSave(blobUrl, fileName);
+      closeUnusedWindow(options.fallbackWindow);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
       return { ok: true, method: "blob", fileName };
     } catch (error) {
       const fileName = `${baseName}.${qualityExtension[resolved.quality] ?? "mp3"}`;
-      window.open(resolved.url, "_blank", "noopener");
+      openFallbackWindow(resolved.url, options.fallbackWindow);
       return { ok: true, method: "newtab", fileName, error: error instanceof Error ? error.message : String(error) };
     }
   }
@@ -60,6 +67,18 @@ function triggerSave(blobUrl: string, fileName: string): void {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+function openFallbackWindow(url: string, fallbackWindow?: Window | null): void {
+  if (fallbackWindow && !fallbackWindow.closed) {
+    fallbackWindow.location.href = url;
+    return;
+  }
+  window.open(url, "_blank", "noopener");
+}
+
+function closeUnusedWindow(fallbackWindow?: Window | null): void {
+  if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close();
 }
 
 function sanitizeFileName(name: string): string {

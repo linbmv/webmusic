@@ -47,6 +47,63 @@ describe("sync server", () => {
     expect(result.library.playlists).toEqual([{ id: "p1", name: "A", trackIds: [], updatedAt: 1 }]);
   });
 
+  it("round-trips a v2 snapshot with the song catalog", async () => {
+    const auth = await register("songcat");
+    const song = testSong();
+
+    await request("/api/me/library", {
+      method: "PUT",
+      cookie: auth.cookie,
+      body: { library: { version: 2, songs: [song], favorites: [], playlists: [{ id: "p1", name: "Mix", trackIds: [song.stableId], updatedAt: 2 }], recents: [] } },
+    });
+    const result = await request<{ library: { version: number; songs: Array<{ stableId: string }> } }>("/api/me/library", { cookie: auth.cookie });
+
+    expect(result.library.version).toBe(2);
+    expect(result.library.songs.map((item) => item.stableId)).toEqual([song.stableId]);
+  });
+
+  it("normalizes a v1 upload and preserves the previously stored song catalog", async () => {
+    const auth = await register("legacy");
+    const song = testSong();
+
+    // 先以 v2 写入歌曲目录
+    await request("/api/me/library", {
+      method: "PUT",
+      cookie: auth.cookie,
+      body: { library: { version: 2, songs: [song], favorites: [song], playlists: [], recents: [] } },
+    });
+    // 再以旧 v1 客户端上传（无 songs 字段）：服务端应规范化为 v2 且不清空已有歌曲目录
+    const updated = await request<{ library: { version: number; songs: Array<{ stableId: string }> } }>("/api/me/library", {
+      method: "PUT",
+      cookie: auth.cookie,
+      body: { library: { favorites: [song], playlists: [], recents: [] } },
+    });
+
+    expect(updated.library.version).toBe(2);
+    expect(updated.library.songs.map((item) => item.stableId)).toContain(song.stableId);
+  });
+
+  it("omits the Secure cookie attribute on plain HTTP", async () => {
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "plainhttp", password: "secret1" }),
+    });
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("wm_session=");
+    expect(setCookie).not.toContain("Secure");
+  });
+
+  it("adds the Secure cookie attribute behind an https forwarding proxy", async () => {
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-proto": "https" },
+      body: JSON.stringify({ username: "secureproxy", password: "secret1" }),
+    });
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("Secure");
+  });
+
   it("stores logged-in downloads inside the user's data directory", async () => {
     const auth = await register("bob");
     const sourceServer = await startAudioSource();

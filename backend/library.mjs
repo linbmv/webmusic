@@ -19,7 +19,7 @@ export async function handleLibrary(req, res, url) {
 function readLibrary(res, userId) {
   const row = getSnapshot.get(userId);
   sendJson(res, 200, {
-    library: row ? JSON.parse(String(row.payload)) : emptyLibrary(),
+    library: row ? normalizeLibrary(JSON.parse(String(row.payload))) : emptyLibrary(),
     updatedAt: row ? Number(row.updated_at) : null,
   });
   return true;
@@ -27,29 +27,90 @@ function readLibrary(res, userId) {
 
 async function writeLibrary(req, res, userId) {
   requireMethod(req, "PUT");
-  const body = await readJson(req, 8_000_000);
-  const library = normalizeLibrary(body.library ?? body);
+  const body = await readJson(req, 12_000_000);
+  const existing = readExistingSnapshot(userId);
+  const library = normalizeLibrary(body.library ?? body, existing);
   const updatedAt = nowMs();
   upsertSnapshot.run(userId, JSON.stringify(library), updatedAt);
   sendJson(res, 200, { library, updatedAt });
   return true;
 }
 
-function emptyLibrary() {
-  return { favorites: [], playlists: [], recents: [] };
+function readExistingSnapshot(userId) {
+  const row = getSnapshot.get(userId);
+  if (!row) return null;
+  try {
+    return normalizeLibrary(JSON.parse(String(row.payload)));
+  } catch {
+    return null;
+  }
 }
 
-function normalizeLibrary(input) {
+function emptyLibrary() {
+  return { version: 2, songs: [], favorites: [], playlists: [], recents: [] };
+}
+
+// 规范化为 v2：songs 显式优先，缺失则从 favorites/recents 推导；
+// 旧 v1 客户端上传不带 songs 时，合并服务端已有 songs，避免把跨设备歌曲目录清空
+function normalizeLibrary(input, existing = null) {
   const raw = isRecord(input) ? input : {};
-  return {
-    favorites: arrayValue(raw.favorites),
-    playlists: arrayValue(raw.playlists),
-    recents: arrayValue(raw.recents),
-  };
+  const favorites = normalizeSongs(raw.favorites);
+  const playlists = normalizePlaylists(raw.playlists);
+  const recents = normalizeRecents(raw.recents);
+  const hasExplicitSongs = Array.isArray(raw.songs);
+  const songSources = [
+    ...(hasExplicitSongs ? normalizeSongs(raw.songs) : []),
+    ...favorites,
+    ...recents.map((recent) => recent.song),
+  ];
+  if (!hasExplicitSongs && existing) songSources.push(...(existing.songs ?? []));
+  return { version: 2, songs: dedupeSongs(songSources), favorites, playlists, recents };
+}
+
+function normalizeSongs(value) {
+  return arrayValue(value).map(normalizeSong).filter(Boolean);
+}
+
+function normalizeSong(value) {
+  if (!isRecord(value)) return null;
+  const stableId = stringValue(value.stableId);
+  if (!stableId) return null;
+  return value;
+}
+
+function normalizePlaylists(value) {
+  return arrayValue(value)
+    .filter(isRecord)
+    .map((playlist) => ({
+      ...playlist,
+      id: stringValue(playlist.id),
+      name: stringValue(playlist.name),
+      trackIds: arrayValue(playlist.trackIds).map(stringValue).filter(Boolean),
+      updatedAt: Number(playlist.updatedAt) || 0,
+    }))
+    .filter((playlist) => playlist.id);
+}
+
+function normalizeRecents(value) {
+  return arrayValue(value)
+    .filter((recent) => isRecord(recent) && isRecord(recent.song) && stringValue(recent.song.stableId))
+    .map((recent) => ({ ...recent, id: stringValue(recent.id) || stringValue(recent.song.stableId), playedAt: Number(recent.playedAt) || 0 }));
+}
+
+function dedupeSongs(songs) {
+  const byId = new Map();
+  songs.forEach((song) => {
+    if (song && stringValue(song.stableId)) byId.set(song.stableId, song);
+  });
+  return Array.from(byId.values());
 }
 
 function arrayValue(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value) {
+  return typeof value === "string" ? value : "";
 }
 
 function isRecord(value) {

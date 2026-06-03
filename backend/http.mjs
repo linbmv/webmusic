@@ -52,10 +52,24 @@ export function parseCookies(header = "") {
   return cookies;
 }
 
-export function sessionCookie(token, maxAgeSeconds) {
-  return `wm_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
+export function sessionCookie(token, maxAgeSeconds, options = {}) {
+  return `wm_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secureSuffix(options)}`;
 }
 
-export function clearSessionCookie() {
-  return "wm_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+export function clearSessionCookie(options = {}) {
+  return `wm_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureSuffix(options)}`;
+}
+
+// HTTPS 下必须带 Secure，否则部分移动浏览器/PWA 会丢弃 Cookie 导致登录态/同步失效；
+// 本地 HTTP 开发不能带 Secure，否则浏览器拒收。通过请求协议或环境变量判定。
+export function isSecureRequest(req) {
+  if (process.env.COOKIE_SECURE === "true") return true;
+  if (process.env.COOKIE_SECURE === "false") return false;
+  const forwardedProto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
+  if (forwardedProto) return forwardedProto === "https";
+  return Boolean(req.socket?.encrypted);
+}
+
+function secureSuffix(options) {
+  return options.secure ? "; Secure" : "";
 }

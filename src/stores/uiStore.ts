@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
+import { createClientId } from "@/utils/id";
 import type { NormalizedSong } from "@/types/music";
 
 type BottomSheetState =
@@ -70,7 +71,7 @@ export const useUiStore = defineStore("ui", () => {
   }
 
   function toast(message: string, options?: { actionLabel?: string; action?: () => void }): void {
-    const item: ToastItem = { id: crypto.randomUUID(), message, actionLabel: options?.actionLabel, action: options?.action };
+    const item: ToastItem = { id: createClientId("toast"), message, actionLabel: options?.actionLabel, action: options?.action };
     toasts.value = [...toasts.value, item];
     const timer = setTimeout(() => dismissToast(item.id), 4000);
     timers.set(item.id, timer);
