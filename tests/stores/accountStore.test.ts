@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as accountApi from "@/services/accountApi";
 import { useAccountStore } from "@/stores/accountStore";
+import { notifyLibraryChanged } from "@/stores/librarySyncBus";
 import type { LibrarySnapshot } from "@/services/accountApi";
 import type { NormalizedSong } from "@/types/music";
 
@@ -105,7 +106,7 @@ describe("accountStore", () => {
     const changed = snapshotWithSong("created", 30);
     libraryMock.setSnapshot(changed);
 
-    libraryMock.triggerAction("createPlaylist");
+    notifyLibraryChanged();
     await vi.advanceTimersByTimeAsync(800);
 
     expect(accountApi.saveLibrary).toHaveBeenCalledWith(changed);

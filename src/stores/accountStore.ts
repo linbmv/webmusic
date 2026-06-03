@@ -10,20 +10,11 @@ import {
   sameLibrary,
   writeLibrarySyncMeta,
 } from "@/stores/librarySync";
+import { onLibraryChanged } from "@/stores/librarySyncBus";
 import type { LibrarySnapshot, ServerDownload } from "@/services/accountApi";
 
 const autoUploadDelayMs = 800;
 const remoteSyncIntervalMs = 30_000;
-const syncedActions = new Set([
-  "toggleFavorite",
-  "removeFavorite",
-  "createPlaylist",
-  "renamePlaylist",
-  "deletePlaylist",
-  "addTrackToPlaylist",
-  "removeTrackFromPlaylist",
-  "recordRecent",
-]);
 
 export const useAccountStore = defineStore("account", () => {
   const user = ref<accountApi.AccountUser | null>(null);
@@ -35,9 +26,9 @@ export const useAccountStore = defineStore("account", () => {
   const lastSyncedAt = ref<number | null>(null);
   const serverLibraryUpdatedAt = ref<number | null>(null);
 
-  let detachLibraryWatcher: (() => void) | null = null;
   let autoUploadTimer: ReturnType<typeof setTimeout> | null = null;
   let autoUploadChain = Promise.resolve();
+  let detachLibraryChangeListener: (() => void) | null = null;
   let remoteSyncTimer: ReturnType<typeof setInterval> | null = null;
   let remoteSyncRunning = false;
 
@@ -112,7 +103,7 @@ export const useAccountStore = defineStore("account", () => {
   async function initializeAuthenticatedSession(): Promise<void> {
     await refreshDownloads();
     await syncLibraryAfterAuth();
-    startLibraryAutoSync();
+    startLocalUploadSync();
     startRemoteLibrarySync();
   }
 
@@ -178,18 +169,14 @@ export const useAccountStore = defineStore("account", () => {
     writeLibrarySyncMeta(user.value.id, updatedAt, library);
   }
 
-  function startLibraryAutoSync(): void {
-    if (detachLibraryWatcher) return;
-    const library = useLibraryStore();
-    detachLibraryWatcher = library.$onAction(({ name, after }) => {
-      if (!syncedActions.has(name)) return;
-      after(() => queueAutoUpload());
-    });
+  function startLocalUploadSync(): void {
+    if (detachLibraryChangeListener) return;
+    detachLibraryChangeListener = onLibraryChanged(queueLibraryUpload);
   }
 
-  function stopLibraryAutoSync(): void {
-    detachLibraryWatcher?.();
-    detachLibraryWatcher = null;
+  function stopLocalUploadSync(): void {
+    detachLibraryChangeListener?.();
+    detachLibraryChangeListener = null;
     if (autoUploadTimer) clearTimeout(autoUploadTimer);
     autoUploadTimer = null;
   }
@@ -209,7 +196,7 @@ export const useAccountStore = defineStore("account", () => {
   }
 
   function stopLibrarySync(): void {
-    stopLibraryAutoSync();
+    stopLocalUploadSync();
     stopRemoteLibrarySync();
   }
 
@@ -233,7 +220,7 @@ export const useAccountStore = defineStore("account", () => {
     }
   }
 
-  function queueAutoUpload(): void {
+  function queueLibraryUpload(): void {
     if (!user.value) return;
     if (autoUploadTimer) clearTimeout(autoUploadTimer);
     autoUploadTimer = setTimeout(() => {
@@ -286,6 +273,7 @@ export const useAccountStore = defineStore("account", () => {
     signOut,
     pushLibrary,
     pullLibrary,
+    queueLibraryUpload,
     refreshDownloads,
     refreshServerLibraryStatus,
   };

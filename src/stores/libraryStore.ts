@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { IndexedDbRepository } from "@/persistence/IndexedDbRepository";
+import { notifyLibraryChanged } from "@/stores/librarySyncBus";
 import type { LocalPlaylist, NormalizedSong, RecentPlay } from "@/types/music";
 
 export const useLibraryStore = defineStore("library", () => {
@@ -37,38 +38,45 @@ export const useLibraryStore = defineStore("library", () => {
     if (exists) await repository.removeFavoriteSong(song.stableId);
     else await repository.addFavoriteSong(song);
     favorites.value = await repository.listFavoriteSongs();
+    notifyLibraryChanged();
   }
 
   async function removeFavorite(stableId: string): Promise<void> {
     await repository.removeFavoriteSong(stableId);
     favorites.value = await repository.listFavoriteSongs();
+    notifyLibraryChanged();
   }
 
   async function createPlaylist(name: string): Promise<LocalPlaylist> {
     const playlist = await repository.createPlaylist(name);
     playlists.value = await repository.listPlaylists();
+    notifyLibraryChanged();
     return playlist;
   }
 
   async function renamePlaylist(id: string, name: string): Promise<void> {
     await repository.renamePlaylist(id, name);
     playlists.value = await repository.listPlaylists();
+    notifyLibraryChanged();
   }
 
   async function deletePlaylist(id: string): Promise<void> {
     await repository.deletePlaylist(id);
     playlists.value = await repository.listPlaylists();
+    notifyLibraryChanged();
   }
 
   async function addTrackToPlaylist(playlistId: string, song: NormalizedSong): Promise<void> {
     await repository.addTrackToPlaylist(playlistId, song);
     playlists.value = await repository.listPlaylists();
     favorites.value = await repository.listFavoriteSongs();
+    notifyLibraryChanged();
   }
 
   async function removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {
     await repository.removeTrackFromPlaylist(playlistId, songId);
     playlists.value = await repository.listPlaylists();
+    notifyLibraryChanged();
   }
 
   function listPlaylistTracks(playlistId: string): NormalizedSong[] {
@@ -81,6 +89,7 @@ export const useLibraryStore = defineStore("library", () => {
   async function recordRecent(song: NormalizedSong): Promise<void> {
     await repository.recordRecentPlay(song);
     recents.value = await repository.listRecentPlays();
+    notifyLibraryChanged();
   }
 
   return {

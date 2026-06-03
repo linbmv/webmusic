@@ -63,6 +63,7 @@ export async function createServerDownload(song: NormalizedSong, quality: AudioQ
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(path, {
     method: options.method ?? "GET",
+    cache: "no-store",
     credentials: "same-origin",
     headers: options.body ? { "content-type": "application/json" } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
