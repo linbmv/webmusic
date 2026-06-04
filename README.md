@@ -64,12 +64,15 @@ docker compose up -d --build
 | `REGISTRATION_ENABLED` | `true` | 新用户注册开关 |
 | `COOKIE_SECURE` | 空（自动判定） | HTTPS Cookie Secure，见下文 |
 | `KARPOV_API_KEY` | 空 | 可选 Karpov provider key |
-| `WEBMUSIC_NETWORK` | `webmusic-net` | 自定义 Docker 网络名 |
-| `WEBMUSIC_SUBNET` | `172.28.0.0/24` | 网络网段（CIDR） |
-| `WEBMUSIC_GATEWAY` | `172.28.0.1` | 网关，须在网段内 |
-| `WEBMUSIC_IP` | `172.28.0.10` | 容器固定 IP，须在网段内 |
+| `WEBMUSIC_NETWORK` | `webmusic-net` | 接入的外部 Docker 网络名（须预先存在） |
 
-应用运行在独立的自定义 bridge 网络 `webmusic-net` 上，容器分配固定 IP。若默认网段 `172.28.0.0/24` 与宿主已有 Docker 网络冲突，在 `.env` 改 `WEBMUSIC_SUBNET`、`WEBMUSIC_GATEWAY`、`WEBMUSIC_IP`（三者须在同一网段内）即可。如需让反向代理等其它容器访问本服务，把它们也接到同名网络（或将本服务改接已有网络）。
+应用接入一个**已存在的外部** Docker 网络（compose 里声明为 `external: true`），便于与反向代理等其它容器同网互通——同网内可用服务名 `webmusic:8080` 直接访问，无需固定 IP。把 `.env` 的 `WEBMUSIC_NETWORK` 设为你的网络名（例如 `D_Home`）。
+
+> ⚠️ 外部网络必须先存在，否则 `docker compose up` 会报 `network ... declared as external, but could not be found`。若还没有，先创建：
+>
+> ```bash
+> docker network create webmusic-net   # 或你在 .env 里填的网络名
+> ```
 
 **如果你的服务器上 `git pull` 已经因为 `docker-compose.yml` 被本地修改而报错**（`Your local changes ... would be overwritten by merge`），一次性迁移到 `.env` 即可根治：
 
