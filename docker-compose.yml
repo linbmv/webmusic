@@ -20,4 +20,19 @@ services:
     volumes:
       # 数据持久化目录，宿主路径可在 .env 用 WEBMUSIC_DATA_DIR 覆盖
       - "${WEBMUSIC_DATA_DIR:-./webmusic-data}:/data"
+    networks:
+      webmusic-net:
+        # 固定容器 IP，可在 .env 用 WEBMUSIC_IP 覆盖；须落在 WEBMUSIC_SUBNET 网段内
+        ipv4_address: "${WEBMUSIC_IP:-172.28.0.10}"
     restart: unless-stopped
+
+networks:
+  # 独立自定义 bridge 网络；真实网络名/网段/网关可在 .env 覆盖，避免与宿主已有 Docker 网络冲突
+  webmusic-net:
+    name: "${WEBMUSIC_NETWORK:-webmusic-net}"
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${WEBMUSIC_SUBNET:-172.28.0.0/24}"
+          gateway: "${WEBMUSIC_GATEWAY:-172.28.0.1}"
+
