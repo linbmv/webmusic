@@ -20,6 +20,9 @@
       <button v-if="canRemoveFromPlaylist" class="action-row danger" @click="onRemoveFromPlaylist">
         <Trash2 :size="18" />{{ zh.music.removeFromPlaylist }}
       </button>
+      <button v-if="canRemoveFromFavorites" class="action-row danger" @click="onRemoveFromFavorites">
+        <Trash2 :size="18" />{{ zh.music.removeFromFavorites }}
+      </button>
     </template>
   </aside>
 </template>
@@ -42,6 +45,7 @@ const open = computed(() => ui.actionSheet !== null);
 const isRename = computed(() => ui.actionSheet?.type === "renamePlaylist");
 const isTrackActions = computed(() => ui.actionSheet?.type === "trackActions");
 const canRemoveFromPlaylist = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.playlistId));
+const canRemoveFromFavorites = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.isFavorites));
 const title = computed(() => (isRename.value ? zh.music.renamePlaylist : zh.music.trackActions));
 
 watch(
@@ -99,6 +103,17 @@ async function onRemoveFromPlaylist(): Promise<void> {
   ui.toast(`${zh.music.removed}: ${song.name}`, {
     actionLabel: zh.music.undo,
     action: () => void library.addTrackToPlaylist(playlistId, song),
+  });
+}
+
+async function onRemoveFromFavorites(): Promise<void> {
+  if (ui.actionSheet?.type !== "trackActions" || !ui.actionSheet.isFavorites) return;
+  const { song } = ui.actionSheet;
+  ui.closeActionSheet();
+  await library.removeFavorite(song.stableId);
+  ui.toast(`${zh.music.removed}: ${song.name}`, {
+    actionLabel: zh.music.undo,
+    action: () => void library.toggleFavorite(song),
   });
 }
 </script>

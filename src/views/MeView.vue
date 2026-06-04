@@ -39,11 +39,7 @@
           <h2 class="section-title">曲库同步</h2>
           <span class="status-dot" :class="account.syncStatus">{{ statusText }}</span>
         </div>
-        <div class="button-row">
-          <button class="primary-btn" :disabled="account.loading" @click="pushLibrary">上传本机曲库</button>
-          <button class="secondary-btn" :disabled="account.loading" @click="pullLibrary">拉取服务端曲库</button>
-        </div>
-        <p class="muted sync-copy">同步包含收藏、歌单、最近播放和歌单歌曲目录；删除操作会在多设备间生效。</p>
+        <p class="muted sync-copy">登录后会自动同步收藏、歌单、最近播放和歌单歌曲目录；删除操作会在多设备间生效，无需手动上传或拉取。</p>
         <p v-if="syncTimeText" class="muted sync-copy">{{ syncTimeText }}</p>
         <p v-if="account.error" class="error-text">{{ account.error }}</p>
       </section>
@@ -72,14 +68,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { zh } from "@/i18n/zh";
 import { useAccountStore } from "@/stores/accountStore";
-import { useLibraryStore } from "@/stores/libraryStore";
 import type { NormalizedSong } from "@/types/music";
 
 const account = useAccountStore();
-const library = useLibraryStore();
 const username = ref("");
 const password = ref("");
 const canSubmit = computed(() => username.value.trim().length > 0 && password.value.length >= 6);
@@ -96,8 +90,6 @@ const syncTimeText = computed(() => {
   return `${local} · ${server}`;
 });
 
-onMounted(() => void account.loadMe());
-
 async function signIn(): Promise<void> {
   await account.signIn(username.value.trim(), password.value);
 }
@@ -108,16 +100,6 @@ async function signUp(): Promise<void> {
 
 async function signOut(): Promise<void> {
   await account.signOut();
-}
-
-async function pushLibrary(): Promise<void> {
-  await account.pushLibrary();
-}
-
-async function pullLibrary(): Promise<void> {
-  await library.load();
-  if (hasLocalLibrary() && !window.confirm("拉取服务端曲库会替换本机当前曲库，是否继续？")) return;
-  await account.pullLibrary();
 }
 
 async function refreshDownloads(): Promise<void> {
@@ -138,10 +120,6 @@ function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
-function hasLocalLibrary(): boolean {
-  return library.favorites.length > 0 || library.playlists.length > 0 || library.recents.length > 0;
 }
 </script>
 

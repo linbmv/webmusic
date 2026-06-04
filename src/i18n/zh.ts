@@ -64,6 +64,7 @@ export const zh = {
     emptyQueue: "\u64ad\u653e\u961f\u5217\u4e3a\u7a7a",
     emptyPlaylist: "\u6b4c\u5355\u8fd8\u6ca1\u6709\u6b4c\u66f2",
     removeFromPlaylist: "\u4ece\u6b4c\u5355\u79fb\u9664",
+    removeFromFavorites: "\u4ece\u6536\u85cf\u79fb\u9664",
     deletePlaylist: "\u5220\u9664\u6b4c\u5355",
     renamePlaylist: "\u91cd\u547d\u540d\u6b4c\u5355",
     deleted: "\u5df2\u5220\u9664",

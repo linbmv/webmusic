@@ -67,25 +67,10 @@ export const useAccountStore = defineStore("account", () => {
     lastSyncedAt.value = null;
   }
 
-  async function pushLibrary(): Promise<void> {
-    await run(saveLocalLibrary);
-  }
-
-  async function pullLibrary(): Promise<void> {
-    await run(replaceLocalLibraryFromServer);
-  }
-
   async function saveLocalLibrary(): Promise<void> {
     const library = useLibraryStore();
     await library.load();
     await saveLibrarySnapshot(library.snapshot());
-  }
-
-  async function replaceLocalLibraryFromServer(): Promise<void> {
-    const result = await accountApi.getLibrary();
-    serverLibraryUpdatedAt.value = result.updatedAt;
-    if (!result.updatedAt && isEmptyLibrary(result.library)) throw new Error("No server library snapshot to pull");
-    await replaceLocalLibrary(result.library, result.updatedAt ?? Date.now());
   }
 
   async function refreshServerLibraryStatus(): Promise<void> {
@@ -282,8 +267,6 @@ export const useAccountStore = defineStore("account", () => {
     signIn,
     signUp,
     signOut,
-    pushLibrary,
-    pullLibrary,
     queueLibraryUpload,
     refreshDownloads,
     refreshServerLibraryStatus,

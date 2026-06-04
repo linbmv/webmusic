@@ -15,7 +15,7 @@
       @pointerup="onPointerUp"
       @pointercancel="onPointerCancel"
       @touchstart.passive="onTouchStart"
-      @touchmove.passive="onTouchMove"
+      @touchmove="onTouchMove"
       @touchend="onTouchEnd"
       @touchcancel="onTouchCancel"
       @contextmenu.prevent="onLongPress"
@@ -26,6 +26,9 @@
         <strong class="ellipsis">{{ item.name }}</strong>
         <small class="ellipsis">{{ item.artistText }}</small>
       </div>
+      <button v-if="canDelete" class="icon-btn track-delete" :aria-label="zh.common.delete" @pointerdown.stop @click.stop="onDelete">
+        <Trash2 :size="18" />
+      </button>
       <button class="icon-btn track-more" :aria-label="zh.common.more" @pointerdown.stop @click.stop="onMore">
         <MoreHorizontal :size="18" />
       </button>
@@ -68,6 +71,9 @@ const startX = ref(0);
 const startY = ref(0);
 const touchStartX = ref(0);
 const touchStartY = ref(0);
+// touch 手势期间置位：现代移动浏览器会同时派发 touch 与 pointer 事件，
+// 用它让 pointer 处理器在 touch 设备上完全让位，避免两套逻辑争用共享状态
+const touchActive = ref(false);
 const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 
 // 只有处于歌单或收藏上下文时才允许左滑删除；搜索结果等无删除语义
@@ -81,6 +87,8 @@ function clearLongPress(): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  // touch 派生的 pointer 事件交给 touch 处理器，避免重复触发
+  if (touchActive.value || event.pointerType === "touch") return;
   if (event.pointerType === "mouse" && event.button !== 0) return;
   dragging.value = true;
   moved.value = false;
@@ -97,8 +105,9 @@ function onPointerMove(event: PointerEvent): void {
   const deltaX = event.clientX - startX.value;
   const deltaY = event.clientY - startY.value;
   if (!moved.value && Math.abs(deltaX) < TAP_SLOP && Math.abs(deltaY) < TAP_SLOP) return;
-  // 纵向意图占主导时放弃横向滑动，交还给页面滚动
-  if (!moved.value && Math.abs(deltaY) > Math.abs(deltaX)) {
+  // 仅当纵向意图明显占主导（>1.5 倍且超过阈值）时放弃横向滑动，交还页面滚动；
+  // 放宽判定避免鼠标/触控板轻微抖动过早取消左滑
+  if (!moved.value && Math.abs(deltaY) > TAP_SLOP && Math.abs(deltaY) > Math.abs(deltaX) * 1.5) {
     cancelDrag();
     return;
   }
@@ -110,7 +119,7 @@ function onPointerMove(event: PointerEvent): void {
 }
 
 async function onPointerUp(event: PointerEvent): Promise<void> {
-  if (!dragging.value) return;
+  if (touchActive.value || !dragging.value) return;
   dragging.value = false;
   clearLongPress();
   (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
@@ -143,14 +152,16 @@ function onPlay(): void {
 }
 
 function onMore(): void {
-  if (props.item.song) ui.openTrackActions(props.item.song, props.playlistId);
+  if (props.item.song) ui.openTrackActions(props.item.song, props.playlistId, props.isFavorites);
 }
 
 function onTouchStart(event: TouchEvent): void {
   if (event.touches.length !== 1) return;
+  touchActive.value = true;
+  dragging.value = true;
+  moved.value = false;
   touchStartX.value = event.touches[0].clientX;
   touchStartY.value = event.touches[0].clientY;
-  moved.value = false;
   clearLongPress();
   longPressTimer.value = setTimeout(() => {
     if (!moved.value) onLongPress();
@@ -158,21 +169,45 @@ function onTouchStart(event: TouchEvent): void {
 }
 
 function onTouchMove(event: TouchEvent): void {
-  if (event.touches.length !== 1) return;
+  if (!touchActive.value || event.touches.length !== 1) return;
   const deltaX = event.touches[0].clientX - touchStartX.value;
   const deltaY = event.touches[0].clientY - touchStartY.value;
-  if (Math.abs(deltaX) > TAP_SLOP || Math.abs(deltaY) > TAP_SLOP) {
-    moved.value = true;
-    clearLongPress();
+  if (!moved.value && Math.abs(deltaX) < TAP_SLOP && Math.abs(deltaY) < TAP_SLOP) return;
+  // 纵向意图明显占主导：放弃横向滑动，交还页面滚动
+  if (!moved.value && Math.abs(deltaY) > Math.abs(deltaX)) {
+    cancelDrag();
+    return;
+  }
+  moved.value = true;
+  clearLongPress();
+  // 横向滑动已接管，阻止页面纵向滚动干扰
+  if (event.cancelable) event.preventDefault();
+  const limited = Math.max(-MAX, Math.min(MAX, deltaX));
+  swipeOffset.value = !canDelete.value && limited < 0 ? 0 : limited;
+}
+
+async function onTouchEnd(): Promise<void> {
+  if (!touchActive.value) return;
+  dragging.value = false;
+  clearLongPress();
+  const offset = swipeOffset.value;
+  swipeOffset.value = 0;
+  // 延迟清除 touchActive，跳过紧随其后的 pointerup，避免重复触发播放/删除
+  setTimeout(() => { touchActive.value = false; }, 50);
+  if (!moved.value) {
+    onPlay();
+    return;
+  }
+  if (offset >= THRESHOLD) {
+    await downloadFlow();
+  } else if (offset <= -THRESHOLD && canDelete.value) {
+    await onDelete();
   }
 }
 
-function onTouchEnd(): void {
-  clearLongPress();
-}
-
 function onTouchCancel(): void {
-  clearLongPress();
+  cancelDrag();
+  setTimeout(() => { touchActive.value = false; }, 50);
 }
 
 // 长按 = 加入歌单
@@ -343,5 +378,28 @@ async function onDelete(): Promise<void> {
   width: 28px;
   height: 28px;
   color: rgba(235, 235, 245, 0.58);
+}
+
+/* PC 端悬停删除按钮：默认隐藏，仅在支持 hover 的精确指针设备上、行 hover/聚焦时显示；
+   移动端始终隐藏，避免遮挡触摸滑动，删除仍走左滑 */
+.track-delete {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  color: #ff453a;
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .track-delete {
+    display: inline-flex;
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+
+  .track-row:hover .track-delete,
+  .track-row:focus-within .track-delete {
+    opacity: 1;
+  }
 }
 </style>

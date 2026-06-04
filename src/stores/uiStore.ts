@@ -10,7 +10,7 @@ type BottomSheetState =
 
 type ActionSheetState =
   | { type: "renamePlaylist"; playlistId: string; currentName: string }
-  | { type: "trackActions"; song: NormalizedSong; playlistId?: string }
+  | { type: "trackActions"; song: NormalizedSong; playlistId?: string; isFavorites?: boolean }
   | null;
 
 interface ToastItem {
@@ -63,8 +63,8 @@ export const useUiStore = defineStore("ui", () => {
   function openRenamePlaylist(playlistId: string, currentName: string): void {
     actionSheet.value = { type: "renamePlaylist", playlistId, currentName };
   }
-  function openTrackActions(song: NormalizedSong, playlistId?: string): void {
-    actionSheet.value = { type: "trackActions", song, playlistId };
+  function openTrackActions(song: NormalizedSong, playlistId?: string, isFavorites?: boolean): void {
+    actionSheet.value = { type: "trackActions", song, playlistId, isFavorites };
   }
   function closeActionSheet(): void {
     actionSheet.value = null;

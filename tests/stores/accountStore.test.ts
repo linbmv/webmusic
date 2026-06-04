@@ -141,13 +141,6 @@ describe("accountStore", () => {
     expect(accountApi.saveLibrary).toHaveBeenCalledWith(merged);
   });
 
-  it("rejects pulling an empty missing server snapshot", async () => {
-    const account = useAccountStore();
-    account.user = user;
-
-    await expect(account.pullLibrary()).rejects.toThrow("No server library snapshot to pull");
-  });
-
   it("uploads an emptied library so a full clear propagates across devices", async () => {
     // 预置上次同步基线：服务端仍是该状态，本机已清空，应上传空库让删除生效
     const baselineLibrary = snapshotWithSong("gone", 10);
