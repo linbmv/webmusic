@@ -158,6 +158,7 @@ export interface SearchRequest {
 export interface AlbumSongsRequest {
   name: string;
   artist?: string;
+  source?: MusicSourceId;
   page?: number;
   size?: number;
 }

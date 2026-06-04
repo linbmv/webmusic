@@ -131,19 +131,28 @@ export class FreeMusicProvider implements MusicProvider {
   async getAlbumSongs(req: AlbumSongsRequest): Promise<PageResult<NormalizedSong>> {
     const page = req.page ?? 0;
     const pageSize = req.size ?? 60;
+    // 搜索结果里专辑名常是 "歌手 - 专辑名"，但上游 /album/songs 只认纯专辑名（如 "LPCD45"）；
+    // 且必须带 source，否则跨源（如 kuwo 专辑按 netease 查）匹配不到。
     const data = await this.http.getJson<AlbumSongsResponse>("/album/songs", {
-      name: req.name,
-      artist: req.artist ?? "",
+      name: albumNameWithoutArtist(req.name, req.artist),
+      source: req.source ?? "netease",
       page,
       size: pageSize,
     });
     const rawItems = data.songs ?? data.list ?? data.data ?? [];
+    let items = rawItems.map((item) => normalizeFreeMusicSong(item as never));
+    // 上游按专辑名模糊匹配，会带回同名合辑里其他歌手的歌；而把 artist 传给上游会直接返回空。
+    // 因此本地按专辑歌手过滤回该专辑曲目；过滤后为空则保留原始结果，避免误伤。
+    if (req.artist) {
+      const filtered = items.filter((song) => songMatchesAlbumArtist(song, req.artist as string));
+      if (filtered.length) items = filtered;
+    }
     return {
-      items: rawItems.map((item) => normalizeFreeMusicSong(item as never)),
+      items,
       page,
       pageSize,
-      hasMore: Boolean(data.hasMore),
-      total: data.total,
+      hasMore: false,
+      total: items.length,
     };
   }
 
@@ -333,6 +342,31 @@ function stringValue(value: unknown): string | undefined {
 
 function decodeText(value: string): string {
   return value.replace(/&nbsp;/g, " ").replace(/&apos;/g, "'").trim();
+}
+
+// 搜索结果的专辑名常带歌手前缀（"王杰 - LPCD45"），上游 /album/songs 只认纯专辑名（"LPCD45"）
+const albumPrefixSeparators = [" - ", " – ", " — ", " · ", "-", "–", "—", "·"];
+function albumNameWithoutArtist(name: string, artist?: string): string {
+  const decoded = decodeText(name);
+  if (!artist) return decoded;
+  const decodedArtist = decodeText(artist);
+  for (const separator of albumPrefixSeparators) {
+    const prefix = `${decodedArtist}${separator}`;
+    if (decoded.startsWith(prefix)) return decoded.slice(prefix.length).trim() || decoded;
+  }
+  return decoded;
+}
+
+// 专辑歌手可能是合唱/合辑（"王杰&林忆莲"、"张雨生&王杰&..."）；歌曲歌手文本命中任一即视为该专辑曲目
+function songMatchesAlbumArtist(song: NormalizedSong, albumArtist: string): boolean {
+  const tokens = decodeText(albumArtist)
+    .replace(/\\/g, "")
+    .split(/[&/、,]/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (!tokens.length) return true;
+  const text = song.artistText;
+  return tokens.some((token) => text.includes(token));
 }
 
 function extractQualityItems(input: unknown): unknown[] {

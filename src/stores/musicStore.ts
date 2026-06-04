@@ -76,7 +76,7 @@ export const useMusicStore = defineStore("music", () => {
     try {
       searchDetailSongs.value = await withProviderFallback(async (provider) => {
         if (!provider.getAlbumSongs) throw new Error("Provider does not support album songs");
-        return (await provider.getAlbumSongs({ name: item.title, artist, page: 0, size: 60 })).items;
+        return (await provider.getAlbumSongs({ name: item.title, artist, source: item.source, page: 0, size: 60 })).items;
       });
     } catch (detailError) {
       error.value = detailError instanceof Error ? detailError.message : "Album songs request failed";
