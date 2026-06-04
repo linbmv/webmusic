@@ -36,22 +36,40 @@
     <section class="section">
       <div class="section-head">
         <h2 class="section-title">{{ zh.music.playlists }}</h2>
-        <span class="section-hint">{{ zh.music.longPressRename }}</span>
+        <span class="section-hint">{{ zh.music.playlistManageHint }}</span>
       </div>
       <div class="track-list">
-        <button
+        <div
           v-for="playlist in visiblePlaylists"
           :key="playlist.id"
           class="playlist-row"
-          @click="goToPlaylist(playlist)"
-          @contextmenu.prevent="renamePlaylist(playlist)"
+          role="button"
+          tabindex="0"
+          @click="onPlaylistClick(playlist)"
+          @keydown.enter="goToPlaylist(playlist)"
+          @keydown.space.prevent="goToPlaylist(playlist)"
+          @contextmenu.prevent="openPlaylistActions(playlist)"
+          @touchstart.passive="onTouchStart(playlist, $event)"
+          @touchmove.passive="onTouchMove($event)"
+          @touchend="clearLongPress"
+          @touchcancel="clearLongPress"
         >
           <span class="playlist-icon"><ListMusic :size="17" /></span>
           <span class="playlist-copy">
             <strong class="ellipsis">{{ playlist.name }}</strong>
             <small>{{ playlist.trackIds.length }} {{ zh.common.songUnit }}</small>
           </span>
-        </button>
+          <button
+            v-if="isRealPlaylist(playlist)"
+            class="icon-btn playlist-more"
+            :aria-label="zh.music.playlistActions"
+            @pointerdown.stop
+            @touchstart.stop
+            @click.stop="openPlaylistActions(playlist)"
+          >
+            <MoreHorizontal :size="18" />
+          </button>
+        </div>
       </div>
     </section>
 
@@ -66,7 +84,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Clock3, Heart, ListMusic, Plus } from "lucide-vue-next";
+import { Clock3, Heart, ListMusic, MoreHorizontal, Plus } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import { zh } from "@/i18n/zh";
 import TrackList from "@/components/Track/TrackList.vue";
@@ -112,15 +130,64 @@ async function createLocalPlaylist(): Promise<void> {
 }
 
 function goToPlaylist(playlist: LocalPlaylist): void {
-  if (library.playlists.some((item) => item.id === playlist.id)) {
+  if (isRealPlaylist(playlist)) {
     void router.push(`/playlist/${playlist.id}`);
   }
 }
 
-function renamePlaylist(playlist: LocalPlaylist): void {
-  if (library.playlists.some((item) => item.id === playlist.id)) {
-    ui.openRenamePlaylist(playlist.id, playlist.name);
+function isRealPlaylist(playlist: LocalPlaylist): boolean {
+  return library.playlists.some((item) => item.id === playlist.id);
+}
+
+// 歌单操作入口：右键、长按、行尾“更多”均打开操作面板（重命名 / 删除）；fallback 占位歌单不可操作
+function openPlaylistActions(playlist: LocalPlaylist): void {
+  if (isRealPlaylist(playlist)) {
+    ui.openPlaylistActions(playlist.id, playlist.name);
   }
+}
+
+// 点击进入歌单详情；若刚触发长按则吞掉这次合成 click，避免长按后又跳转
+function onPlaylistClick(playlist: LocalPlaylist): void {
+  if (suppressClick.value) {
+    suppressClick.value = false;
+    return;
+  }
+  goToPlaylist(playlist);
+}
+
+// iOS Safari/PWA 不稳定派发 contextmenu，改用触摸长按计时器打开歌单操作面板
+const LONG_PRESS_MS = 560;
+const TAP_SLOP = 10;
+const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+const suppressClick = ref(false);
+
+function clearLongPress(): void {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+}
+
+function onTouchStart(playlist: LocalPlaylist, event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  suppressClick.value = false;
+  touchStartX.value = event.touches[0].clientX;
+  touchStartY.value = event.touches[0].clientY;
+  clearLongPress();
+  longPressTimer.value = setTimeout(() => {
+    suppressClick.value = true;
+    openPlaylistActions(playlist);
+  }, LONG_PRESS_MS);
+}
+
+// 手指移动超过 TAP_SLOP（滚动列表）即取消长按，避免滚动时误触发操作面板
+function onTouchMove(event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  const deltaX = Math.abs(event.touches[0].clientX - touchStartX.value);
+  const deltaY = Math.abs(event.touches[0].clientY - touchStartY.value);
+  if (deltaX > TAP_SLOP || deltaY > TAP_SLOP) clearLongPress();
 }
 
 onMounted(() => void library.load());
@@ -195,6 +262,23 @@ onMounted(() => void library.load());
   width: 100%;
   min-height: 50px;
   padding: 8px 10px;
+  cursor: pointer;
+  /* iOS Safari/PWA 触摸保护：保留纵向滚动，禁止系统文本选择与长按 callout 干扰长按手势 */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.playlist-copy {
+  flex: 1;
+}
+
+.playlist-more {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  color: rgba(235, 235, 245, 0.58);
 }
 
 @media (max-width: 360px) {

@@ -42,3 +42,22 @@ describe("uiStore track actions context", () => {
     expect(sheet.isFavorites).toBeUndefined();
   });
 });
+
+describe("uiStore playlist actions context", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("opens the playlist action sheet carrying id and current name", () => {
+    const ui = useUiStore();
+    ui.openPlaylistActions("p1", "Mix");
+    expect(ui.actionSheet).toMatchObject({ type: "playlistActions", playlistId: "p1", currentName: "Mix" });
+  });
+
+  it("switches from playlist actions to rename while preserving id and name", () => {
+    const ui = useUiStore();
+    ui.openPlaylistActions("p1", "Mix");
+    ui.openRenamePlaylist("p1", "Mix");
+    expect(ui.actionSheet).toMatchObject({ type: "renamePlaylist", playlistId: "p1", currentName: "Mix" });
+  });
+});

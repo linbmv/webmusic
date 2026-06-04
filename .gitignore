@@ -7,6 +7,10 @@ coverage/
 *.local
 .claude/
 .codex/
+# 部署配置：仅 .env.example 入库，真实 .env 不跟踪，避免本地修改阻塞 git pull
+.env
+.env.*
+!.env.example
 *.log
 *.err.log
 npm-debug.log*

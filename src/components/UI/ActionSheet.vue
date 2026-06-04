@@ -14,6 +14,11 @@
       <button class="primary-btn" :disabled="!tempName.trim()" @click="onSave">{{ zh.common.save }}</button>
     </template>
 
+    <template v-else-if="isPlaylistActions">
+      <button class="action-row" @click="onRenamePlaylist"><Pencil :size="18" />{{ zh.music.renamePlaylist }}</button>
+      <button class="action-row danger" @click="onDeletePlaylist"><Trash2 :size="18" />{{ zh.music.deletePlaylist }}</button>
+    </template>
+
     <template v-else-if="isTrackActions">
       <button class="action-row" @click="onAddToPlaylist"><Plus :size="18" />{{ zh.music.addToPlaylist }}</button>
       <button class="action-row" @click="onDownload"><Download :size="18" />{{ zh.music.download }}</button>
@@ -29,7 +34,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Download, Plus, Trash2, X } from "lucide-vue-next";
+import { Download, Pencil, Plus, Trash2, X } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -43,10 +48,15 @@ const nameInput = ref<HTMLInputElement | null>(null);
 
 const open = computed(() => ui.actionSheet !== null);
 const isRename = computed(() => ui.actionSheet?.type === "renamePlaylist");
+const isPlaylistActions = computed(() => ui.actionSheet?.type === "playlistActions");
 const isTrackActions = computed(() => ui.actionSheet?.type === "trackActions");
 const canRemoveFromPlaylist = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.playlistId));
 const canRemoveFromFavorites = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.isFavorites));
-const title = computed(() => (isRename.value ? zh.music.renamePlaylist : zh.music.trackActions));
+const title = computed(() => {
+  if (isRename.value) return zh.music.renamePlaylist;
+  if (isPlaylistActions.value) return zh.music.playlistActions;
+  return zh.music.trackActions;
+});
 
 watch(
   () => ui.actionSheet,
@@ -67,6 +77,21 @@ async function onSave(): Promise<void> {
   await library.renamePlaylist(ui.actionSheet.playlistId, name);
   ui.toast(`${zh.music.renamePlaylist}: ${name}`);
   ui.closeActionSheet();
+}
+
+// 歌单操作：从操作面板切换到重命名表单，复用现有 onSave 保存逻辑
+function onRenamePlaylist(): void {
+  if (ui.actionSheet?.type !== "playlistActions") return;
+  ui.openRenamePlaylist(ui.actionSheet.playlistId, ui.actionSheet.currentName);
+}
+
+// 歌单操作：删除歌单本身，不删除歌曲库、收藏或最近播放
+async function onDeletePlaylist(): Promise<void> {
+  if (ui.actionSheet?.type !== "playlistActions") return;
+  const { playlistId, currentName } = ui.actionSheet;
+  ui.closeActionSheet();
+  await library.deletePlaylist(playlistId);
+  ui.toast(`${zh.music.deleted}: ${currentName}`);
 }
 
 function onAddToPlaylist(): void {

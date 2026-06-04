@@ -76,6 +76,48 @@ describe("AudioEngine", () => {
     engine.destroy();
   });
 
+  it("advances synchronously on ended using the pre-resolved url so background play() keeps the gesture", async () => {
+    const calls: string[] = [];
+    const provider = baseProvider(async (req) => {
+      calls.push(req.id);
+      return { url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" };
+    });
+    const audio = createAudioElement();
+    const playSpy = audio.play as unknown as ReturnType<typeof vi.fn>;
+    const engine = new AudioEngine([provider], undefined, audio);
+
+    engine.replaceQueue([song("a"), song("b")], 0);
+    await engine.playCurrent("flac");
+    await flushPromises(); // 预解析下一首 b
+    expect(calls).toEqual(["a", "b"]);
+    const playsBeforeEnded = playSpy.mock.calls.length;
+
+    // 模拟当前曲自然结束：必须在 ended 同步栈内换源并 play()，不得有 await 才能后台切歌
+    audio.dispatchEvent(new Event("ended"));
+
+    // 同步切到 b（命中缓存），src 已更新、play() 已同步调用、且未重复解析 b
+    expect(audio.src).toContain("b.mp3");
+    expect(engine.getCurrentSong()?.providerSongId).toBe("b");
+    expect(playSpy.mock.calls.length).toBe(playsBeforeEnded + 1);
+    expect(calls).toEqual(["a", "b"]);
+
+    await flushPromises(); // play() 成功后异步预解析再下一首（回到 a）
+    expect(calls).toEqual(["a", "b", "a"]);
+    engine.destroy();
+  });
+
+  it("loops a single-track repeat natively so the lock screen continues without a new gesture", async () => {
+    const provider = baseProvider(async (req) => ({ url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" }));
+    const audio = createAudioElement();
+    const engine = new AudioEngine([provider], undefined, audio);
+
+    engine.setMode("single");
+    expect(audio.loop).toBe(true);
+    engine.setMode("list");
+    expect(audio.loop).toBe(false);
+    engine.destroy();
+  });
+
   it("falls back to paused instead of error when play() is rejected in the background", async () => {
     const provider = baseProvider(async (req) => ({ url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" }));
     const audio = document.createElement("audio");

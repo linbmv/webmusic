@@ -7,7 +7,8 @@ type EngineState = "idle" | "loading" | "playing" | "paused" | "error";
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: "release", listener: () => void) => void };
 type CachedAudioUrl = { result: AudioUrlResult; expiresAt: number };
 
-const preResolvedTtlMs = 5 * 60 * 1000;
+// 预解析直链缓存有效期：覆盖一首歌的播放时长，确保锁屏前解析好的下一首直链在切歌时仍有效
+const preResolvedTtlMs = 15 * 60 * 1000;
 
 export class AudioEngine {
   private readonly audio: HTMLAudioElement;
@@ -79,6 +80,9 @@ export class AudioEngine {
 
   setMode(mode: PlaybackMode): void {
     this.queue = this.queue.setMode(mode);
+    // 单曲循环用原生 audio.loop：后台/锁屏下由媒体元素自动无缝续播，
+    // 不触发 ended，也就不依赖“ended 内同步 play()”的手势延续特权
+    this.audio.loop = mode === "single";
   }
 
   replaceQueue(items: NormalizedSong[], cursor = 0): void {
@@ -214,8 +218,38 @@ export class AudioEngine {
       });
   }
 
+  // 自然播放结束时的切歌。后台/锁屏下能否自动切下一首，取决于 play() 是否在 ended 事件的
+  // 同一同步调用栈内发起：浏览器（尤其 iOS Safari）只把这种 play() 视为正在进行播放的延续而放行，
+  // 任何 await（哪怕命中缓存只是一个微任务）都会断掉手势延续特权，导致后台切歌被拒。
+  // 因此命中预解析直链缓存时走“同步换源 + 同步 play()”快路径；未命中再回退到异步 next()。
+  private handleEnded(): void {
+    const quality = this.currentQuality;
+    const advanced = this.queue.next();
+    const nextSong = advanced.current;
+    if (nextSong) {
+      const key = cacheKey(nextSong, quality);
+      const cached = this.preResolvedUrls.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        this.preResolvedUrls.delete(key);
+        this.queue = advanced;
+        this.currentSong = nextSong;
+        this.audio.src = cached.result.url;
+        const playPromise = this.audio.play();
+        this.setState("playing");
+        this.emitTrackChange();
+        Promise.resolve(playPromise)
+          .then(() => this.preResolveNext(quality))
+          .catch(() => this.setState("paused"));
+        return;
+      }
+    }
+    // 无预解析缓存（长曲超过缓存 TTL、随机模式选中项与预解析项不一致、预解析失败等）：
+    // 回退到异步路径，前台可正常切歌；后台此路径可能因缺少手势而暂停，依赖锁屏 play 键恢复
+    void this.next();
+  }
+
   private bindEvents(): void {
-    this.audio.addEventListener("ended", () => void this.next());
+    this.audio.addEventListener("ended", () => this.handleEnded());
     this.audio.addEventListener("error", () => this.setState("error"));
     this.audio.addEventListener("play", () => { void this.requestWakeLock(); this.setState("playing"); });
     this.audio.addEventListener("pause", () => { if (this.state === "playing") this.setState("paused"); void this.releaseWakeLock(); });

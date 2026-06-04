@@ -10,6 +10,7 @@ type BottomSheetState =
 
 type ActionSheetState =
   | { type: "renamePlaylist"; playlistId: string; currentName: string }
+  | { type: "playlistActions"; playlistId: string; currentName: string }
   | { type: "trackActions"; song: NormalizedSong; playlistId?: string; isFavorites?: boolean }
   | null;
 
@@ -63,6 +64,9 @@ export const useUiStore = defineStore("ui", () => {
   function openRenamePlaylist(playlistId: string, currentName: string): void {
     actionSheet.value = { type: "renamePlaylist", playlistId, currentName };
   }
+  function openPlaylistActions(playlistId: string, currentName: string): void {
+    actionSheet.value = { type: "playlistActions", playlistId, currentName };
+  }
   function openTrackActions(song: NormalizedSong, playlistId?: string, isFavorites?: boolean): void {
     actionSheet.value = { type: "trackActions", song, playlistId, isFavorites };
   }
@@ -110,6 +114,7 @@ export const useUiStore = defineStore("ui", () => {
     openQueue,
     closeBottomSheet,
     openRenamePlaylist,
+    openPlaylistActions,
     openTrackActions,
     closeActionSheet,
     toast,

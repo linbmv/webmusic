@@ -45,14 +45,51 @@ webmusic-data/downloads/<user-id>/
 
 When no user is signed in, downloads still use the browser download flow.
 
+### 部署配置用 .env，避免 git pull 冲突
+
+`docker-compose.yml` 已参数化，所有可变部署项都从同目录的 `.env` 读取（Docker Compose 自动加载）。**请把本地配置写在 `.env` 里，不要直接改 `docker-compose.yml`** —— `.env` 已被 `.gitignore` 忽略，这样 `git pull` 永远不会再因为 `docker-compose.yml` 被本地修改而冲突。
+
+```bash
+cp .env.example .env
+# 按需编辑 .env（端口、注册开关、COOKIE_SECURE、数据目录、Karpov key 等）
+docker compose up -d --build
+```
+
+可用变量（均可选，未设置则用默认值）：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `WEBMUSIC_PORT` | `8080` | 宿主机映射端口 |
+| `WEBMUSIC_DATA_DIR` | `./webmusic-data` | 数据持久化目录 |
+| `REGISTRATION_ENABLED` | `true` | 新用户注册开关 |
+| `COOKIE_SECURE` | 空（自动判定） | HTTPS Cookie Secure，见下文 |
+| `KARPOV_API_KEY` | 空 | 可选 Karpov provider key |
+
+**如果你的服务器上 `git pull` 已经因为 `docker-compose.yml` 被本地修改而报错**（`Your local changes ... would be overwritten by merge`），一次性迁移到 `.env` 即可根治：
+
+```bash
+# 1. 备份你当前改过的 compose（方便照着填 .env）
+cp docker-compose.yml docker-compose.yml.bak
+# 2. 丢弃对 docker-compose.yml 的本地修改，恢复为仓库版本
+git checkout -- docker-compose.yml
+# 3. 拉取最新代码（含参数化 compose 与 .env.example）
+git pull
+# 4. 用 .env 承载你的本地配置，按 docker-compose.yml.bak 里的值填写
+cp .env.example .env && nano .env
+# 5. 重新构建启动；确认无误后可删除备份
+docker compose up -d --build
+```
+
+此后 `docker-compose.yml` 与仓库保持一致，本地差异只存在于被忽略的 `.env`，`git pull` 不再冲突。
+
 ### Disable user registration
 
 By default new users can register. To turn registration off (existing users can
-still sign in), set `REGISTRATION_ENABLED=false`:
+still sign in), set `REGISTRATION_ENABLED=false`（推荐写在 `.env`）：
 
-```yaml
-environment:
-  REGISTRATION_ENABLED: "false"
+```dotenv
+# .env
+REGISTRATION_ENABLED=false
 ```
 
 或 `docker run` 时：
@@ -88,12 +125,14 @@ music.example.com {
 }
 ```
 
-**或在 Compose/Docker 中显式设置**：
+**或在 `.env` 中显式设置**（推荐）：
 
-```yaml
-environment:
-  COOKIE_SECURE: “true”
+```dotenv
+# .env
+COOKIE_SECURE=true
 ```
+
+亦可 `docker run` 时直接传：
 
 ```bash
 docker run --rm -p 8080:8080 -e COOKIE_SECURE=true webmusic

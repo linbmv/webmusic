@@ -47,6 +47,7 @@ export const zh = {
     favoriteSongs: "\u6536\u85cf\u6b4c\u66f2",
     playlists: "\u6b4c\u5355",
     longPressRename: "\u957f\u6309\u53ef\u6539\u540d",
+    playlistManageHint: "\u957f\u6309\u6216\u70b9\u201c\u66f4\u591a\u201d\u53ef\u91cd\u547d\u540d\u3001\u5220\u9664",
     settingsSubtitle: "\u97f3\u8d28\u3001\u6b4c\u8bcd\u4e0e\u4e3b\u9898\u914d\u7f6e",
     localSubtitle: "\u672c\u5730\u4e0e WebDAV \u97f3\u4e50\u5e93",
     localScan: "\u626b\u63cf\u672c\u5730\u97f3\u4e50",

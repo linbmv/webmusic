@@ -3,19 +3,21 @@ services:
     build: .
     image: webmusic:latest
     ports:
-      - "8080:8080"
+      # 宿主端口可在 .env 用 WEBMUSIC_PORT 覆盖，容器内固定 8080
+      - "${WEBMUSIC_PORT:-8080}:8080"
     environment:
       PORT: "8080"
       HOST: "0.0.0.0"
       DATA_DIR: "/data"
       DOWNLOAD_DIR: "/data/downloads"
-      # 设为 "false" 关闭新用户注册，已注册用户仍可登录
-      REGISTRATION_ENABLED: "true"
-      # HTTPS 反向代理：确保传递 X-Forwarded-Proto header，或显式设置 COOKIE_SECURE=true
-      # 否则移动端浏览器/PWA 可能因 Cookie 缺少 Secure 属性而丢弃登录态
-      # COOKIE_SECURE: "true"
-      # Optional: required only when using the Karpov provider.
-      # KARPOV_API_KEY: ""
+      # 新用户注册开关：true 开启，false 关闭（老用户仍可登录）。在 .env 覆盖
+      REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-true}"
+      # HTTPS 反向代理 Cookie Secure：留空=按 X-Forwarded-Proto 自动判定（推荐）；
+      # 显式 true/false 可强制覆盖。详见 README「HTTPS 反向代理与 Cookie 安全」
+      COOKIE_SECURE: "${COOKIE_SECURE:-}"
+      # 可选：仅在使用 Karpov provider 时需要
+      KARPOV_API_KEY: "${KARPOV_API_KEY:-}"
     volumes:
-      - ./webmusic-data:/data
+      # 数据持久化目录，宿主路径可在 .env 用 WEBMUSIC_DATA_DIR 覆盖
+      - "${WEBMUSIC_DATA_DIR:-./webmusic-data}:/data"
     restart: unless-stopped

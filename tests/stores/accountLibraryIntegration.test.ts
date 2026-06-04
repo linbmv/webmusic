@@ -126,6 +126,32 @@ describe("account and real library store sync", () => {
       songs: expect.arrayContaining([expect.objectContaining({ stableId: song.stableId })]),
     }), null);
   });
+
+  it("uploads the new name after renaming a playlist", async () => {
+    await useAccountStore().signIn("alice", "secret1");
+    const library = useLibraryStore();
+    const playlist = await library.createPlaylist("Mix");
+    await library.renamePlaylist(playlist.id, "Renamed");
+    await vi.advanceTimersByTimeAsync(800);
+
+    // 创建与重命名在防抖窗口内合并为一次上传，最终快照应携带新名称
+    const lastCall = vi.mocked(accountApi.saveLibrary).mock.calls.at(-1);
+    expect(lastCall?.[0].playlists).toEqual([expect.objectContaining({ name: "Renamed" })]);
+  });
+
+  it("uploads an empty playlist list after deleting a playlist", async () => {
+    await useAccountStore().signIn("alice", "secret1");
+    const library = useLibraryStore();
+    const playlist = await library.createPlaylist("Temp");
+    await vi.advanceTimersByTimeAsync(800);
+
+    await library.deletePlaylist(playlist.id);
+    await vi.advanceTimersByTimeAsync(800);
+
+    // 删除歌单后，最终上传的快照不应再包含该歌单
+    const lastCall = vi.mocked(accountApi.saveLibrary).mock.calls.at(-1);
+    expect(lastCall?.[0].playlists).toEqual([]);
+  });
 });
 
 function emptyLibrary(): LibrarySnapshot {
