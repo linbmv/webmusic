@@ -91,11 +91,11 @@ const syncTimeText = computed(() => {
 });
 
 async function signIn(): Promise<void> {
-  await account.signIn(username.value.trim(), password.value);
+  await account.signIn(username.value.trim(), password.value.trim());
 }
 
 async function signUp(): Promise<void> {
-  await account.signUp(username.value.trim(), password.value);
+  await account.signUp(username.value.trim(), password.value.trim());
 }
 
 async function signOut(): Promise<void> {

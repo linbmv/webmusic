@@ -1,6 +1,8 @@
 import { lookup } from "node:dns/promises";
 import { createWriteStream } from "node:fs";
 import { rm } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -30,19 +32,15 @@ export const maxDownloadBytes = positiveInt(process.env.MAX_DOWNLOAD_BYTES, defa
 export const downloadTimeoutMs = positiveInt(process.env.DOWNLOAD_TIMEOUT_MS, defaultTimeoutMs);
 
 export async function fetchDownloadSource(rawUrl) {
-  let currentUrl = await assertAllowedDownloadUrl(rawUrl);
+  let current = await assertAllowedDownloadUrl(rawUrl);
   for (let index = 0; index <= maxRedirects; index += 1) {
-    const response = await fetch(currentUrl.href, {
-      headers: { "user-agent": "webmusic-downloader/0.1" },
-      redirect: "manual",
-      signal: AbortSignal.timeout(downloadTimeoutMs),
-    });
+    const response = await fetchPinnedDownload(current);
     if (!isRedirect(response.status)) {
       if (!response.ok || !response.body) throw httpError(502, `Download source failed: ${response.status}`);
       assertSafeResponse(response);
       return response;
     }
-    currentUrl = await redirectedUrl(currentUrl, response);
+    current = await redirectedUrl(current.url, response);
   }
   throw httpError(400, "Download source redirected too many times");
 }
@@ -58,10 +56,40 @@ export async function writeLimitedResponse(response, filePath) {
 
 async function assertAllowedDownloadUrl(rawUrl) {
   const url = parseDownloadUrl(rawUrl);
-  if (allowedPrivateHosts.has(url.hostname.toLowerCase())) return url;
+  const allowPrivate = allowedPrivateHosts.has(url.hostname.toLowerCase());
   const addresses = await resolveHost(url.hostname);
-  if (addresses.some(isBlockedAddress)) throw httpError(400, "Download URL host is private or reserved");
-  return url;
+  if (!allowPrivate && addresses.some(isBlockedAddress)) throw httpError(400, "Download URL host is private or reserved");
+  return { url, address: addresses[0] };
+}
+
+function fetchPinnedDownload(target) {
+  return new Promise((resolve, reject) => {
+    const url = target.url;
+    const client = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const req = client({
+      protocol: url.protocol,
+      hostname: target.address,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: "GET",
+      servername: isIP(url.hostname) ? undefined : url.hostname,
+      headers: {
+        host: url.host,
+        "user-agent": "webmusic-downloader/0.1",
+      },
+      timeout: downloadTimeoutMs,
+    }, (res) => {
+      resolve({
+        status: Number(res.statusCode ?? 0),
+        ok: Number(res.statusCode ?? 0) >= 200 && Number(res.statusCode ?? 0) < 300,
+        body: res,
+        headers: { get: (name) => headerValue(res.headers[name.toLowerCase()]) },
+      });
+    });
+    req.on("timeout", () => req.destroy(httpError(504, "Download source timed out")));
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 async function redirectedUrl(currentUrl, response) {
@@ -89,7 +117,9 @@ async function resolveHost(hostname) {
   if (isIP(hostname)) return [hostname];
   try {
     const records = await lookup(hostname, { all: true, verbatim: false });
-    return records.map((item) => item.address);
+    const addresses = records.map((item) => item.address);
+    if (!addresses.length) throw new Error("empty DNS result");
+    return addresses;
   } catch {
     throw httpError(400, "Download URL host could not be resolved");
   }
@@ -99,7 +129,7 @@ function assertSafeResponse(response) {
   const contentLength = Number(response.headers.get("content-length") ?? 0);
   if (contentLength > maxDownloadBytes) throw httpError(413, "Downloaded audio is too large");
   const type = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (type && !isAllowedContentType(type)) throw httpError(415, "Download source is not an audio stream");
+  if (!type || !isAllowedContentType(type)) throw httpError(415, "Download source is not an audio stream");
 }
 
 function isAllowedContentType(type) {
@@ -153,4 +183,9 @@ function splitEnv(value = "") {
 function positiveInt(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function headerValue(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  return typeof value === "string" ? value : null;
 }

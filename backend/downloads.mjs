@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, mkdirSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { downloadDir, db, nowMs } from "./storage.mjs";
@@ -9,6 +9,8 @@ import { requireUser } from "./auth.mjs";
 
 const allowedProviderIds = new Set(["mock", "freeMusic", "karpov", "gdStudio", "custom"]);
 const allowedSources = new Set(["netease", "kuwo", "qqmusic", "kugou", "joox"]);
+const defaultMaxUserBytes = 2_000_000_000; // 2GB
+const maxUserDownloadBytes = positiveInt(process.env.MAX_USER_DOWNLOAD_BYTES, defaultMaxUserBytes);
 
 const getDownloads = db.prepare(`
 SELECT user_downloads.id, user_downloads.song_payload, user_downloads.quality, user_downloads.created_at,
@@ -19,7 +21,7 @@ ORDER BY user_downloads.created_at DESC
 `);
 const getDownload = db.prepare(`
 SELECT user_downloads.id, user_downloads.song_payload, user_downloads.quality,
-       audio_assets.file_path, audio_assets.mime_type, audio_assets.size_bytes
+       audio_assets.id AS asset_id, audio_assets.file_path, audio_assets.mime_type, audio_assets.size_bytes
 FROM user_downloads JOIN audio_assets ON audio_assets.id = user_downloads.asset_id
 WHERE user_downloads.user_id = ? AND user_downloads.id = ?
 `);
@@ -28,6 +30,9 @@ const insertAsset = db.prepare("INSERT INTO audio_assets (id, user_id, provider_
 const insertDownload = db.prepare("INSERT OR IGNORE INTO user_downloads (id, user_id, asset_id, song_payload, quality, created_at) VALUES (?, ?, ?, ?, ?, ?)");
 const findUserDownload = db.prepare("SELECT id FROM user_downloads WHERE user_id = ? AND asset_id = ?");
 const deleteDownload = db.prepare("DELETE FROM user_downloads WHERE user_id = ? AND id = ?");
+const countAssetReferences = db.prepare("SELECT COUNT(*) AS ref_count FROM user_downloads WHERE asset_id = ?");
+const deleteAsset = db.prepare("DELETE FROM audio_assets WHERE id = ?");
+const getAssetFilePath = db.prepare("SELECT file_path FROM audio_assets WHERE id = ?");
 
 export async function handleDownloads(req, res, url) {
   if (!url.pathname.startsWith("/api/me/downloads")) return false;
@@ -54,6 +59,8 @@ async function createDownload(req, res, userId) {
   const quality = normalizeQuality(body.quality);
   const audioUrl = stringValue(body.audioUrl);
   if (!audioUrl) throw httpError(400, "audioUrl is required");
+  const currentTotal = getDownloads.all(userId).reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0);
+  if (currentTotal >= maxUserDownloadBytes) throw httpError(507, "User download quota exceeded");
   const asset = await ensureAsset(userId, song, quality, audioUrl);
   insertDownload.run(randomUUID(), userId, asset.id, JSON.stringify(song), quality, nowMs());
   const downloadId = findUserDownload.get(userId, asset.id)?.id;
@@ -76,8 +83,23 @@ function streamDownload(res, userId, downloadId) {
   return true;
 }
 
-function removeDownload(res, userId, downloadId) {
+async function removeDownload(res, userId, downloadId) {
+  const row = getDownload.get(userId, downloadId);
+  if (!row) {
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+  const assetId = String(row.asset_id ?? "");
   deleteDownload.run(userId, downloadId);
+  const refCount = countAssetReferences.get(assetId)?.ref_count ?? 0;
+  if (refCount === 0) {
+    const assetRow = getAssetFilePath.get(assetId);
+    if (assetRow) {
+      const filePath = String(assetRow.file_path);
+      await rm(filePath, { force: true }).catch(() => {});
+    }
+    deleteAsset.run(assetId);
+  }
   sendJson(res, 200, { ok: true });
   return true;
 }
@@ -195,4 +217,9 @@ function sanitizeSegment(value) {
 
 function isSafeSegment(value) {
   return /^[a-zA-Z0-9_.-]{1,120}$/.test(value) && value !== "." && value !== "..";
+}
+
+function positiveInt(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }

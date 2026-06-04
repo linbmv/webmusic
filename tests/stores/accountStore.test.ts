@@ -47,6 +47,11 @@ vi.mock("@/stores/libraryStore", () => ({
 }));
 
 vi.mock("@/services/accountApi", () => ({
+  LibraryConflictError: class LibraryConflictError extends Error {
+    constructor(readonly response: { library: LibrarySnapshot; updatedAt: number | null }) {
+      super("曲库快照版本冲突");
+    }
+  },
   getMe: vi.fn(),
   login: vi.fn(),
   register: vi.fn(),
@@ -85,7 +90,7 @@ describe("accountStore", () => {
 
     await useAccountStore().signIn("alice", "secret1");
 
-    expect(accountApi.saveLibrary).toHaveBeenCalledWith(local);
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(local, null);
     expect(useAccountStore().syncStatus).toBe("synced");
     expect(useAccountStore().lastSyncedAt).toBe(100);
   });
@@ -110,7 +115,7 @@ describe("accountStore", () => {
     notifyLibraryChanged();
     await vi.advanceTimersByTimeAsync(800);
 
-    expect(accountApi.saveLibrary).toHaveBeenCalledWith(changed);
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(changed, null);
   });
 
   it("polls and pulls server changes while the device stays signed in", async () => {
@@ -138,7 +143,27 @@ describe("accountStore", () => {
     await useAccountStore().signIn("alice", "secret1");
 
     expect(libraryMock.store.replaceLibrary).toHaveBeenCalledWith(merged);
-    expect(accountApi.saveLibrary).toHaveBeenCalledWith(merged);
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(merged, 200);
+  });
+
+  it("retries with a merged snapshot when the server rejects a stale upload", async () => {
+    const local = snapshotWithSong("pc", 30);
+    const serverAtLogin = snapshotWithSong("phone", 20);
+    const serverAfterConflict = mergeLibraries(serverAtLogin, snapshotWithSong("tablet", 40));
+    const firstMerged = mergeLibraries(local, serverAtLogin);
+    const finalMerged = mergeLibraries(firstMerged, serverAfterConflict);
+    libraryMock.setSnapshot(local);
+    vi.mocked(accountApi.getLibrary).mockResolvedValue({ library: serverAtLogin, updatedAt: 200 });
+    vi.mocked(accountApi.saveLibrary)
+      .mockRejectedValueOnce(new accountApi.LibraryConflictError({ library: serverAfterConflict, updatedAt: 300 }))
+      .mockResolvedValueOnce({ library: finalMerged, updatedAt: 400 });
+
+    await useAccountStore().signIn("alice", "secret1");
+
+    expect(accountApi.saveLibrary).toHaveBeenNthCalledWith(1, firstMerged, 200);
+    expect(accountApi.saveLibrary).toHaveBeenNthCalledWith(2, finalMerged, 300);
+    expect(libraryMock.store.replaceLibrary).toHaveBeenLastCalledWith(finalMerged);
+    expect(useAccountStore().lastSyncedAt).toBe(400);
   });
 
   it("uploads an emptied library so a full clear propagates across devices", async () => {
@@ -151,7 +176,7 @@ describe("accountStore", () => {
     await useAccountStore().signIn("alice", "secret1");
 
     expect(libraryMock.store.replaceLibrary).not.toHaveBeenCalled();
-    expect(accountApi.saveLibrary).toHaveBeenCalledWith(emptyLibrary());
+    expect(accountApi.saveLibrary).toHaveBeenCalledWith(emptyLibrary(), 50);
   });
 });
 

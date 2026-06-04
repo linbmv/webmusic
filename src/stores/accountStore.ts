@@ -163,9 +163,24 @@ export const useAccountStore = defineStore("account", () => {
   async function saveLibrarySnapshot(library: LibrarySnapshot): Promise<void> {
     if (!user.value) throw new Error("Not signed in");
     syncStatus.value = "syncing";
-    const result = await accountApi.saveLibrary(library);
+    const result = await saveLibraryWithConflictRetry(library, serverLibraryUpdatedAt.value);
     if (result.updatedAt === null) throw new Error("Server did not return library sync timestamp");
     markLibrarySynced(result.updatedAt, result.library);
+  }
+
+  async function saveLibraryWithConflictRetry(library: LibrarySnapshot, baseUpdatedAt: number | null): Promise<accountApi.LibraryResponse> {
+    try {
+      return await accountApi.saveLibrary(library, baseUpdatedAt);
+    } catch (caught) {
+      if (!(caught instanceof accountApi.LibraryConflictError)) throw caught;
+      serverLibraryUpdatedAt.value = caught.response.updatedAt;
+      const meta = user.value ? readLibrarySyncMeta(user.value.id) : null;
+      const merged = meta
+        ? mergeLibrariesWithBaseline(library, caught.response.library, meta.baseline)
+        : mergeLibraries(library, caught.response.library);
+      if (!sameLibrary(merged, library)) await useLibraryStore().replaceLibrary(merged);
+      return accountApi.saveLibrary(merged, caught.response.updatedAt);
+    }
   }
 
   function markLibrarySynced(updatedAt: number, library: LibrarySnapshot): void {

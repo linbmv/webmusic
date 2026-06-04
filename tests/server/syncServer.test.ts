@@ -112,6 +112,34 @@ describe("sync server", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
+  it("lets an existing user sign in after registration is disabled", async () => {
+    const auth = await register("existing");
+    await fetch(`${baseUrl}/api/auth/logout`, {
+      method: "POST",
+      headers: { cookie: auth.cookie },
+    });
+
+    const previousDataDir = dataDir;
+    await stopServer();
+    dataDir = previousDataDir;
+    await startServer({ REGISTRATION_ENABLED: "false" }, { reuseDataDir: true });
+
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "another", password: "secret1" }),
+    });
+    expect(registerResponse.status).toBe(403);
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "existing", password: "secret1" }),
+    });
+    expect(loginResponse.status).toBe(200);
+    expect(loginResponse.headers.get("set-cookie")).toContain("wm_session=");
+  });
+
   it("stores logged-in downloads inside the user's data directory", async () => {
     const auth = await register("bob");
     const sourceServer = await startAudioSource();
@@ -165,8 +193,8 @@ describe("sync server", () => {
   });
 });
 
-async function startServer(extraEnv: Record<string, string> = {}): Promise<void> {
-  dataDir = await mkdtemp(join(tmpdir(), "webmusic-test-"));
+async function startServer(extraEnv: Record<string, string> = {}, options: { reuseDataDir?: boolean } = {}): Promise<void> {
+  if (!options.reuseDataDir) dataDir = await mkdtemp(join(tmpdir(), "webmusic-test-"));
   const port = 18_080 + Math.floor(Math.random() * 1000);
   baseUrl = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, ["--experimental-sqlite", "server.mjs"], {

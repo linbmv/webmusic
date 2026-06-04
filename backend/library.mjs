@@ -28,12 +28,27 @@ function readLibrary(res, userId) {
 async function writeLibrary(req, res, userId) {
   requireMethod(req, "PUT");
   const body = await readJson(req, 12_000_000);
-  const existing = readExistingSnapshot(userId);
+  const row = getSnapshot.get(userId);
+  const existing = row ? normalizeLibrary(JSON.parse(String(row.payload))) : null;
+  const existingUpdatedAt = row ? Number(row.updated_at) : null;
+  if (hasBaseUpdatedAt(body) && !sameBaseUpdatedAt(body.baseUpdatedAt, existingUpdatedAt)) {
+    sendJson(res, 409, { library: existing ?? emptyLibrary(), updatedAt: existingUpdatedAt });
+    return true;
+  }
   const library = normalizeLibrary(body.library ?? body, existing);
   const updatedAt = nowMs();
   upsertSnapshot.run(userId, JSON.stringify(library), updatedAt);
   sendJson(res, 200, { library, updatedAt });
   return true;
+}
+
+function hasBaseUpdatedAt(body) {
+  return isRecord(body) && Object.prototype.hasOwnProperty.call(body, "baseUpdatedAt");
+}
+
+function sameBaseUpdatedAt(baseUpdatedAt, existingUpdatedAt) {
+  if (baseUpdatedAt === null) return existingUpdatedAt === null;
+  return Number(baseUpdatedAt) === existingUpdatedAt;
 }
 
 function readExistingSnapshot(userId) {

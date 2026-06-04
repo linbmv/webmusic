@@ -28,9 +28,21 @@ export interface ServerDownload {
 interface MeResponse { user: AccountUser | null }
 interface AuthResponse { user: AccountUser }
 interface ConfigResponse { registrationEnabled: boolean }
-interface LibraryResponse { library: LibrarySnapshot; updatedAt: number | null }
+export interface LibraryResponse { library: LibrarySnapshot; updatedAt: number | null }
 interface DownloadsResponse { downloads: ServerDownload[]; totalBytes: number }
 interface DownloadResponse { download: ServerDownload }
+
+export class LibraryConflictError extends Error {
+  constructor(readonly response: LibraryResponse) {
+    super("曲库快照版本冲突");
+  }
+}
+
+class ApiError extends Error {
+  constructor(readonly status: number, readonly payload: unknown) {
+    super(String((payload as { error?: string }).error ?? `HTTP ${status}`));
+  }
+}
 
 export async function getConfig(): Promise<ConfigResponse> {
   return request<ConfigResponse>("/api/config");
@@ -56,8 +68,8 @@ export async function getLibrary(): Promise<LibraryResponse> {
   return request<LibraryResponse>("/api/me/library");
 }
 
-export async function saveLibrary(library: LibrarySnapshot): Promise<LibraryResponse> {
-  return request<LibraryResponse>("/api/me/library", { method: "PUT", body: { library } });
+export async function saveLibrary(library: LibrarySnapshot, baseUpdatedAt: number | null = null): Promise<LibraryResponse> {
+  return request<LibraryResponse>("/api/me/library", { method: "PUT", body: { library, baseUpdatedAt } });
 }
 
 export async function listDownloads(): Promise<DownloadsResponse> {
@@ -77,6 +89,13 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String((payload as { error?: string }).error ?? `HTTP ${response.status}`));
+  if (!response.ok) {
+    if (response.status === 409 && isLibraryResponse(payload)) throw new LibraryConflictError(payload);
+    throw new ApiError(response.status, payload);
+  }
   return payload as T;
+}
+
+function isLibraryResponse(value: unknown): value is LibraryResponse {
+  return typeof value === "object" && value !== null && "library" in value && "updatedAt" in value;
 }
