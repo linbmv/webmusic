@@ -40,7 +40,7 @@ export async function handleDownloads(req, res, url) {
   if (url.pathname === "/api/me/downloads" && req.method === "GET") return listDownloads(res, user.id);
   if (url.pathname === "/api/me/downloads" && req.method === "POST") return createDownload(req, res, user.id);
   const streamMatch = url.pathname.match(/^\/api\/me\/downloads\/([^/]+)\/stream$/);
-  if (streamMatch && req.method === "GET") return streamDownload(res, user.id, streamMatch[1]);
+  if (streamMatch && req.method === "GET") return streamDownload(res, user.id, streamMatch[1], req);
   const deleteMatch = url.pathname.match(/^\/api\/me\/downloads\/([^/]+)$/);
   if (deleteMatch && req.method === "DELETE") return removeDownload(res, user.id, deleteMatch[1]);
   throw httpError(405, "Method not allowed");
@@ -68,18 +68,33 @@ async function createDownload(req, res, userId) {
   return true;
 }
 
-function streamDownload(res, userId, downloadId) {
+function streamDownload(res, userId, downloadId, req) {
   const row = getDownload.get(userId, downloadId);
   if (!row) throw httpError(404, "Download not found");
   const filePath = resolve(String(row.file_path));
   if (!isInsideUserDownloads(userId, filePath) || !existsSync(filePath)) throw httpError(404, "Downloaded file missing");
   const song = JSON.parse(String(row.song_payload));
-  res.writeHead(200, {
-    "content-type": String(row.mime_type ?? "application/octet-stream"),
-    "content-length": String(row.size_bytes ?? 0),
-    "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(fileNameFor(song, String(row.quality)))}`,
-  });
-  createReadStream(filePath).pipe(res);
+  const fileSize = Number(row.size_bytes ?? 0);
+  const rangeHeader = String(req.headers["range"] ?? "");
+  const range = parseRangeHeader(rangeHeader, fileSize);
+  if (range) {
+    res.writeHead(206, {
+      "content-type": String(row.mime_type ?? "application/octet-stream"),
+      "content-length": String(range.end - range.start + 1),
+      "content-range": `bytes ${range.start}-${range.end}/${fileSize}`,
+      "accept-ranges": "bytes",
+      "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(fileNameFor(song, String(row.quality)))}`,
+    });
+    createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      "content-type": String(row.mime_type ?? "application/octet-stream"),
+      "content-length": String(fileSize),
+      "accept-ranges": "bytes",
+      "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(fileNameFor(song, String(row.quality)))}`,
+    });
+    createReadStream(filePath).pipe(res);
+  }
   return true;
 }
 
@@ -222,4 +237,14 @@ function isSafeSegment(value) {
 function positiveInt(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseRangeHeader(rangeHeader, fileSize) {
+  if (!rangeHeader || !rangeHeader.startsWith("bytes=")) return null;
+  const parts = rangeHeader.slice(6).split("-");
+  if (parts.length !== 2) return null;
+  const start = parts[0] ? Number(parts[0]) : 0;
+  const end = parts[1] ? Number(parts[1]) : fileSize - 1;
+  if (Number.isNaN(start) || Number.isNaN(end) || start < 0 || end >= fileSize || start > end) return null;
+  return { start, end };
 }

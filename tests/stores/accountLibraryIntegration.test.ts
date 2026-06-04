@@ -106,7 +106,7 @@ describe("account and real library store sync", () => {
 
     expect(accountApi.saveLibrary).toHaveBeenCalledWith(expect.objectContaining({
       playlists: [expect.objectContaining({ name: "Synced" })],
-    }));
+    }), null);
   });
 
   it("keeps a playlist track readable even when it is not favorited", async () => {
@@ -124,7 +124,7 @@ describe("account and real library store sync", () => {
     expect(accountApi.saveLibrary).toHaveBeenCalledWith(expect.objectContaining({
       version: 2,
       songs: expect.arrayContaining([expect.objectContaining({ stableId: song.stableId })]),
-    }));
+    }), null);
   });
 });
 

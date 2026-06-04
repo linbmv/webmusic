@@ -61,8 +61,45 @@ environment:
 docker run --rm -p 8080:8080 -e REGISTRATION_ENABLED=false webmusic
 ```
 
-关闭后，`POST /api/auth/register` 返回 `403 { "error": "用户注册已禁用" }`，
-前端会自动隐藏“创建账号”按钮（通过 `GET /api/config` 读取开关）。
+关闭后，`POST /api/auth/register` 返回 `403 { “error”: “用户注册已禁用” }`，
+前端会自动隐藏”创建账号”按钮（通过 `GET /api/config` 读取开关）。
+
+### HTTPS 反向代理与 Cookie 安全
+
+如果在 Nginx/Caddy 等反向代理后通过 HTTPS 访问，**必须**传递 `X-Forwarded-Proto` header，或显式设置环境变量 `COOKIE_SECURE=true`，否则移动端浏览器/PWA 可能因 Cookie 缺少 `Secure` 属性而丢弃登录态和同步状态。
+
+**Nginx 示例配置**：
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:8080;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;  # 关键：告知后端协议
+}
+```
+
+**Caddy 示例配置**（自动传递 `X-Forwarded-Proto`）：
+
+```caddyfile
+music.example.com {
+  reverse_proxy localhost:8080
+}
+```
+
+**或在 Compose/Docker 中显式设置**：
+
+```yaml
+environment:
+  COOKIE_SECURE: “true”
+```
+
+```bash
+docker run --rm -p 8080:8080 -e COOKIE_SECURE=true webmusic
+```
+
+**验证方式**：登录后检查浏览器开发者工具 → Application/Storage → Cookies，`wm_session` 应包含 `Secure` 标志。
 
 Optional Karpov provider key:
 

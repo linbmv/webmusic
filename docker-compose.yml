@@ -11,6 +11,9 @@ services:
       DOWNLOAD_DIR: "/data/downloads"
       # 设为 "false" 关闭新用户注册，已注册用户仍可登录
       REGISTRATION_ENABLED: "true"
+      # HTTPS 反向代理：确保传递 X-Forwarded-Proto header，或显式设置 COOKIE_SECURE=true
+      # 否则移动端浏览器/PWA 可能因 Cookie 缺少 Secure 属性而丢弃登录态
+      # COOKIE_SECURE: "true"
       # Optional: required only when using the Karpov provider.
       # KARPOV_API_KEY: ""
     volumes:
