@@ -26,6 +26,7 @@ export const useAccountStore = defineStore("account", () => {
   const error = ref<string | null>(null);
   const lastSyncedAt = ref<number | null>(null);
   const serverLibraryUpdatedAt = ref<number | null>(null);
+  const registrationEnabled = ref(true);
 
   let autoUploadTimer: ReturnType<typeof setTimeout> | null = null;
   let autoUploadChain = Promise.resolve();
@@ -35,10 +36,20 @@ export const useAccountStore = defineStore("account", () => {
 
   async function loadMe(): Promise<void> {
     await run(async () => {
+      await loadConfig();
       user.value = await accountApi.getMe();
       if (user.value) await initializeAuthenticatedSession();
       else stopLibrarySync();
     });
+  }
+
+  async function loadConfig(): Promise<void> {
+    try {
+      registrationEnabled.value = (await accountApi.getConfig()).registrationEnabled;
+    } catch (caught) {
+      registrationEnabled.value = true;
+      console.warn("Failed to load app config", caught);
+    }
   }
 
   async function signIn(username: string, password: string): Promise<void> {
@@ -263,6 +274,7 @@ export const useAccountStore = defineStore("account", () => {
     error,
     lastSyncedAt,
     serverLibraryUpdatedAt,
+    registrationEnabled,
     loadMe,
     signIn,
     signUp,

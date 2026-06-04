@@ -64,6 +64,7 @@ export const usePlayerStore = defineStore("player", () => {
     target.onTime((timeMs, totalMs) => {
       currentTimeMs.value = timeMs;
       if (totalMs > 0) durationMs.value = totalMs;
+      syncMediaSessionPosition();
     });
     target.onStateChange((next) => {
       state.value = next;
@@ -200,11 +201,30 @@ export const usePlayerStore = defineStore("player", () => {
     navigator.mediaSession.setActionHandler("pause", () => pause());
     navigator.mediaSession.setActionHandler("previoustrack", () => void previous());
     navigator.mediaSession.setActionHandler("nexttrack", () => void next());
+    navigator.mediaSession.setActionHandler("stop", () => pause());
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (typeof details.seekTime === "number") seek(details.seekTime * 1000);
+    });
+    syncMediaSessionPosition();
   }
 
   function syncMediaSessionPlaybackState(nextState: typeof state.value): void {
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.playbackState = nextState === "playing" ? "playing" : nextState === "paused" ? "paused" : "none";
+  }
+
+  function syncMediaSessionPosition(): void {
+    const session = "mediaSession" in navigator ? navigator.mediaSession as MediaSession & { setPositionState?: (state?: MediaPositionState) => void } : null;
+    if (!session?.setPositionState || durationMs.value <= 0) return;
+    try {
+      session.setPositionState({
+        duration: Math.max(0, durationMs.value / 1000),
+        position: Math.min(Math.max(0, currentTimeMs.value / 1000), Math.max(0, durationMs.value / 1000)),
+        playbackRate: 1,
+      });
+    } catch {
+      // 部分浏览器要求 duration/position 为有限非负数；非法时忽略，不影响播放
+    }
   }
 
   async function loadLyric(song: NormalizedSong): Promise<void> {

@@ -62,7 +62,7 @@ const library = useLibraryStore();
 // 滑动触发阈值与上限：超过 THRESHOLD 松手即触发动作，最大位移 MAX，小于 TAP_SLOP 视为点击
 const THRESHOLD = 64;
 const MAX = 96;
-const TAP_SLOP = 6;
+const TAP_SLOP = 10;
 
 const swipeOffset = ref(0);
 const dragging = ref(false);
@@ -174,8 +174,9 @@ function onTouchMove(event: TouchEvent): void {
   const deltaY = event.touches[0].clientY - touchStartY.value;
   if (!moved.value && Math.abs(deltaX) < TAP_SLOP && Math.abs(deltaY) < TAP_SLOP) return;
   // 纵向意图明显占主导：放弃横向滑动，交还页面滚动
-  if (!moved.value && Math.abs(deltaY) > Math.abs(deltaX)) {
+  if (!moved.value && Math.abs(deltaY) > TAP_SLOP && Math.abs(deltaY) > Math.abs(deltaX)) {
     cancelDrag();
+    touchActive.value = false;
     return;
   }
   moved.value = true;
@@ -188,6 +189,7 @@ function onTouchMove(event: TouchEvent): void {
 
 async function onTouchEnd(): Promise<void> {
   if (!touchActive.value) return;
+  const wasDragging = dragging.value;
   dragging.value = false;
   clearLongPress();
   const offset = swipeOffset.value;
@@ -195,7 +197,7 @@ async function onTouchEnd(): Promise<void> {
   // 延迟清除 touchActive，跳过紧随其后的 pointerup，避免重复触发播放/删除
   setTimeout(() => { touchActive.value = false; }, 50);
   if (!moved.value) {
-    onPlay();
+    if (wasDragging) onPlay();
     return;
   }
   if (offset >= THRESHOLD) {

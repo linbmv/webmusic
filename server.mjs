@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { handleAuth } from "./backend/auth.mjs";
+import { handleAuth, isRegistrationEnabled } from "./backend/auth.mjs";
 import { handleDownloads } from "./backend/downloads.mjs";
 import { httpError, sendJson, sendText } from "./backend/http.mjs";
 import { handleLibrary } from "./backend/library.mjs";
@@ -21,6 +21,10 @@ createServer(async (req, res) => {
   try {
     if (!req.url) return send(res, 400, "Bad request");
     const url = new URL(req.url, `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (url.pathname === "/api/config") {
+      sendJson(res, 200, { registrationEnabled: isRegistrationEnabled() });
+      return;
+    }
     if (await handleAuth(req, res, url)) return;
     if (await handleLibrary(req, res, url)) return;
     if (await handleDownloads(req, res, url)) return;

@@ -45,6 +45,25 @@ webmusic-data/downloads/<user-id>/
 
 When no user is signed in, downloads still use the browser download flow.
 
+### Disable user registration
+
+By default new users can register. To turn registration off (existing users can
+still sign in), set `REGISTRATION_ENABLED=false`:
+
+```yaml
+environment:
+  REGISTRATION_ENABLED: "false"
+```
+
+或 `docker run` 时：
+
+```bash
+docker run --rm -p 8080:8080 -e REGISTRATION_ENABLED=false webmusic
+```
+
+关闭后，`POST /api/auth/register` 返回 `403 { "error": "用户注册已禁用" }`，
+前端会自动隐藏“创建账号”按钮（通过 `GET /api/config` 读取开关）。
+
 Optional Karpov provider key:
 
 ```bash

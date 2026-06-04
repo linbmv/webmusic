@@ -20,7 +20,7 @@
       </div>
       <div class="button-row">
         <button class="primary-btn" :disabled="account.loading || !canSubmit" @click="signIn">登录</button>
-        <button class="secondary-btn" :disabled="account.loading || !canSubmit" @click="signUp">创建账号</button>
+        <button v-if="account.registrationEnabled" class="secondary-btn" :disabled="account.loading || !canSubmit" @click="signUp">创建账号</button>
       </div>
       <p v-if="account.error" class="error-text">{{ account.error }}</p>
     </section>

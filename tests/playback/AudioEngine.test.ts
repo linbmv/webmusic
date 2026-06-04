@@ -44,14 +44,60 @@ describe("AudioEngine", () => {
     await engine.playCurrent("flac");
     await engine.next();
 
-    expect(calls).toEqual([
+    expect(calls).toEqual(expect.arrayContaining([
       { id: "a", quality: "flac" },
       { id: "a", quality: "320kmp3" },
       { id: "b", quality: "flac" },
-    ]);
+    ]));
+    expect(calls.findIndex((call) => call.id === "b" && call.quality === "flac")).toBeGreaterThan(
+      calls.findIndex((call) => call.id === "a" && call.quality === "320kmp3"),
+    );
+    engine.destroy();
+  });
+
+  it("pre-resolves the next track and reuses it on advance without re-resolving", async () => {
+    const calls: string[] = [];
+    const provider = baseProvider(async (req) => {
+      calls.push(req.id);
+      return { url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" };
+    });
+    const engine = new AudioEngine([provider], undefined, createAudioElement());
+
+    engine.replaceQueue([song("a"), song("b")], 0);
+    await engine.playCurrent("flac");
+    // 当前曲播放后异步预解析下一首；等待微任务队列清空
+    await flushPromises();
+    expect(calls).toEqual(["a", "b"]);
+
+    await engine.next();
+    // 切到 b 时命中预解析缓存，不再重复解析 b；预解析的下一首回到 a
+    await flushPromises();
+    expect(calls).toEqual(["a", "b", "a"]);
+    engine.destroy();
+  });
+
+  it("falls back to paused instead of error when play() is rejected in the background", async () => {
+    const provider = baseProvider(async (req) => ({ url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" }));
+    const audio = document.createElement("audio");
+    vi.spyOn(audio, "play").mockRejectedValue(new DOMException("NotAllowedError"));
+    vi.spyOn(audio, "pause").mockImplementation(() => undefined);
+    const states: string[] = [];
+    const engine = new AudioEngine([provider], undefined, audio);
+    engine.onStateChange((state) => states.push(state));
+
+    engine.replaceQueue([song("a")], 0);
+    await engine.playCurrent("flac");
+
+    expect(engine.getState()).toBe("paused");
+    expect(states).toContain("paused");
+    expect(states).not.toContain("error");
     engine.destroy();
   });
 });
+
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function createAudioElement(): HTMLAudioElement {
   const audio = document.createElement("audio");

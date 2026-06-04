@@ -27,9 +27,14 @@ export interface ServerDownload {
 
 interface MeResponse { user: AccountUser | null }
 interface AuthResponse { user: AccountUser }
+interface ConfigResponse { registrationEnabled: boolean }
 interface LibraryResponse { library: LibrarySnapshot; updatedAt: number | null }
 interface DownloadsResponse { downloads: ServerDownload[]; totalBytes: number }
 interface DownloadResponse { download: ServerDownload }
+
+export async function getConfig(): Promise<ConfigResponse> {
+  return request<ConfigResponse>("/api/config");
+}
 
 export async function getMe(): Promise<AccountUser | null> {
   return (await request<MeResponse>("/api/auth/me")).user;

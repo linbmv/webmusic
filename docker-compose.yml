@@ -9,6 +9,8 @@ services:
       HOST: "0.0.0.0"
       DATA_DIR: "/data"
       DOWNLOAD_DIR: "/data/downloads"
+      # 设为 "false" 关闭新用户注册，已注册用户仍可登录
+      REGISTRATION_ENABLED: "true"
       # Optional: required only when using the Karpov provider.
       # KARPOV_API_KEY: ""
     volumes:

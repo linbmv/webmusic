@@ -5,6 +5,10 @@ import { clearSessionCookie, httpError, isSecureRequest, parseCookies, readJson,
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const minPasswordLength = 6;
 
+export function isRegistrationEnabled() {
+  return process.env.REGISTRATION_ENABLED !== "false";
+}
+
 const insertUser = db.prepare("INSERT INTO users (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)");
 const findUserByName = db.prepare("SELECT id, username, password_hash, salt, created_at FROM users WHERE username = ?");
 const findUserById = db.prepare("SELECT id, username, created_at FROM users WHERE id = ?");
@@ -45,6 +49,7 @@ function currentSession(req) {
 
 async function register(req, res) {
   requireMethod(req, "POST");
+  if (!isRegistrationEnabled()) throw httpError(403, "用户注册已禁用");
   const body = await readJson(req);
   const username = normalizeUsername(body.username);
   const password = stringValue(body.password);

@@ -158,7 +158,12 @@ function isDesktopPointer(): boolean {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+}
+
+.bar-controls .icon-btn {
+  width: 40px;
+  height: 40px;
 }
 
 .play-btn {

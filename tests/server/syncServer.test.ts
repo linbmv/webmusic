@@ -10,22 +10,7 @@ let baseUrl = "";
 
 describe("sync server", () => {
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), "webmusic-test-"));
-    const port = 18_080 + Math.floor(Math.random() * 1000);
-    baseUrl = `http://127.0.0.1:${port}`;
-    server = spawn(process.execPath, ["--experimental-sqlite", "server.mjs"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        PORT: String(port),
-        HOST: "127.0.0.1",
-        DATA_DIR: dataDir,
-        DOWNLOAD_DIR: join(dataDir, "downloads"),
-        ALLOW_PRIVATE_DOWNLOAD_HOSTS: "127.0.0.1",
-      },
-      stdio: "pipe",
-    });
-    await waitForServer(baseUrl);
+    await startServer();
   });
 
   afterEach(async () => {
@@ -104,6 +89,29 @@ describe("sync server", () => {
     expect(setCookie).toContain("Secure");
   });
 
+  it("exposes registration enabled by default via /api/config", async () => {
+    const result = await request<{ registrationEnabled: boolean }>("/api/config");
+    expect(result.registrationEnabled).toBe(true);
+  });
+
+  it("disables registration when REGISTRATION_ENABLED=false", async () => {
+    await stopServer();
+    await rm(dataDir, { recursive: true, force: true });
+    await startServer({ REGISTRATION_ENABLED: "false" });
+
+    const config = await request<{ registrationEnabled: boolean }>("/api/config");
+    expect(config.registrationEnabled).toBe(false);
+
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "blocked", password: "secret1" }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "用户注册已禁用" });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
   it("stores logged-in downloads inside the user's data directory", async () => {
     const auth = await register("bob");
     const sourceServer = await startAudioSource();
@@ -156,6 +164,26 @@ describe("sync server", () => {
     }
   });
 });
+
+async function startServer(extraEnv: Record<string, string> = {}): Promise<void> {
+  dataDir = await mkdtemp(join(tmpdir(), "webmusic-test-"));
+  const port = 18_080 + Math.floor(Math.random() * 1000);
+  baseUrl = `http://127.0.0.1:${port}`;
+  server = spawn(process.execPath, ["--experimental-sqlite", "server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      DATA_DIR: dataDir,
+      DOWNLOAD_DIR: join(dataDir, "downloads"),
+      ALLOW_PRIVATE_DOWNLOAD_HOSTS: "127.0.0.1",
+      ...extraEnv,
+    },
+    stdio: "pipe",
+  });
+  await waitForServer(baseUrl);
+}
 
 async function register(username: string): Promise<{ cookie: string; user: { id: string } }> {
   const response = await fetch(`${baseUrl}/api/auth/register`, {
