@@ -37,6 +37,21 @@ describe("IndexedDbRepository", () => {
     expect(favorites).toEqual([]);
   });
 
+  it("adds multiple playlist tracks in one catalog update and dedupes ids", async () => {
+    const repo = new IndexedDbRepository();
+    const playlist = await repo.createPlaylist("Album");
+    await repo.addTrackToPlaylist(playlist.id, song("a"));
+
+    await repo.addTracksToPlaylist(playlist.id, [song("a"), song("b")]);
+
+    const stored = await repo.listPlaylists();
+    expect(stored[0].trackIds).toEqual(["mock:netease:song:a", "mock:netease:song:b"]);
+    expect((await repo.listLibrarySongs()).map((item) => item.stableId).sort()).toEqual([
+      "mock:netease:song:a",
+      "mock:netease:song:b",
+    ]);
+  });
+
   it("does not drop the playlist song catalog entry after removing a favorite", async () => {
     const repo = new IndexedDbRepository();
     await repo.addFavoriteSong(song("a"));

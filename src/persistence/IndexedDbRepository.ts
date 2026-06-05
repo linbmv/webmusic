@@ -120,6 +120,22 @@ export class IndexedDbRepository {
     await tx.done;
   }
 
+  // 批量加入整张专辑/歌单时只更新一次 playlist 和歌曲目录，避免逐首触发多次事务与同步通知
+  async addTracksToPlaylist(playlistId: string, songs: NormalizedSong[]): Promise<void> {
+    if (!songs.length) return;
+    const db = await this.dbPromise;
+    const plainSongs = songs.map((song) => toPlain(song));
+    const tx = db.transaction(["playlists", "librarySongs"], "readwrite");
+    const playlists = tx.objectStore("playlists");
+    const playlist = await playlists.get(playlistId);
+    if (!playlist) throw new Error(`Playlist not found: ${playlistId}`);
+    const nextIds = plainSongs.map((song) => song.stableId);
+    const trackIds = Array.from(new Set([...playlist.trackIds, ...nextIds]));
+    playlists.put({ ...playlist, trackIds, updatedAt: Date.now() }, playlistId);
+    plainSongs.forEach((song) => tx.objectStore("librarySongs").put(song, song.stableId));
+    await tx.done;
+  }
+
   async removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {
     const db = await this.dbPromise;
     const playlist = await db.get("playlists", playlistId);

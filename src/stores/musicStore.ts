@@ -3,10 +3,12 @@ import { computed, ref } from "vue";
 import { zh } from "@/i18n/zh";
 import { getSourceTag } from "@/providers/sourceMetadata";
 import { useProviderStore } from "@/stores/providerStore";
-import type { MusicSourceId, NormalizedPlaylist, NormalizedSong, SearchListItem, SearchType, ToplistGroup } from "@/types/music";
+import type { MusicSourceId, NormalizedPlaylist, NormalizedSong, PageResult, SearchListItem, SearchType, ToplistGroup } from "@/types/music";
 import type { TrackRowItem } from "@/types/ui";
 
 const defaultSearchKeyword = zh.names.yinTian;
+const playlistPageSize = 100;
+const maxPlaylistPageFetches = 20;
 
 export const useMusicStore = defineStore("music", () => {
   const providerStore = useProviderStore();
@@ -110,6 +112,24 @@ export const useMusicStore = defineStore("music", () => {
     });
   }
 
+  async function loadFullPlaylistSongs(id: string, source: MusicSourceId = "netease"): Promise<NormalizedSong[]> {
+    return withProviderFallback(async (provider) => {
+      const detail = await provider.getPlaylist({ id, source });
+      if (!provider.getPlaylistPage) return [];
+      let songs: NormalizedSong[] = [];
+      let offset = 0;
+      for (let page = 0; page < maxPlaylistPageFetches; page += 1) {
+        const result = await provider.getPlaylistPage({ id, source: detail.source, offset, size: playlistPageSize });
+        const nextSongs = dedupeSongs([...songs, ...result.items]);
+        if (nextSongs.length === songs.length) break;
+        songs = nextSongs;
+        offset += result.items.length;
+        if (!shouldLoadMorePlaylistSongs({ result, fetched: songs.length, expectedTotal: detail.trackCount })) break;
+      }
+      return songs;
+    });
+  }
+
   function songRows(songs: NormalizedSong[]): TrackRowItem[] {
     return songs.map((song, index) => ({
       id: song.stableId,
@@ -181,6 +201,17 @@ export const useMusicStore = defineStore("music", () => {
     clearSearchDetail,
     loadToplists,
     loadPlaylist,
+    loadFullPlaylistSongs,
     songRows,
   };
 });
+
+function shouldLoadMorePlaylistSongs(options: { result: PageResult<NormalizedSong>; fetched: number; expectedTotal?: number }): boolean {
+  if (!options.result.items.length) return false;
+  if (options.expectedTotal && options.fetched >= options.expectedTotal) return false;
+  return options.result.hasMore || Boolean(options.expectedTotal && options.result.items.length >= playlistPageSize);
+}
+
+function dedupeSongs(songs: NormalizedSong[]): NormalizedSong[] {
+  return Array.from(new Map(songs.map((song) => [song.stableId, song])).values());
+}

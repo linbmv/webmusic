@@ -27,6 +27,7 @@ WHERE user_downloads.user_id = ? AND user_downloads.id = ?
 `);
 const findAsset = db.prepare("SELECT id, file_path, size_bytes, mime_type FROM audio_assets WHERE user_id = ? AND provider_id = ? AND source = ? AND provider_song_id = ? AND quality = ?");
 const insertAsset = db.prepare("INSERT INTO audio_assets (id, user_id, provider_id, source, provider_song_id, quality, file_path, mime_type, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+const updateAsset = db.prepare("UPDATE audio_assets SET file_path = ?, mime_type = ?, size_bytes = ?, created_at = ? WHERE id = ?");
 const insertDownload = db.prepare("INSERT OR IGNORE INTO user_downloads (id, user_id, asset_id, song_payload, quality, created_at) VALUES (?, ?, ?, ?, ?, ?)");
 const findUserDownload = db.prepare("SELECT id FROM user_downloads WHERE user_id = ? AND asset_id = ?");
 const deleteDownload = db.prepare("DELETE FROM user_downloads WHERE user_id = ? AND id = ?");
@@ -59,11 +60,24 @@ async function createDownload(req, res, userId) {
   const quality = normalizeQuality(body.quality);
   const audioUrl = stringValue(body.audioUrl);
   if (!audioUrl) throw httpError(400, "audioUrl is required");
-  const currentTotal = getDownloads.all(userId).reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0);
-  if (currentTotal >= maxUserDownloadBytes) throw httpError(507, "User download quota exceeded");
-  const asset = await ensureAsset(userId, song, quality, audioUrl);
+  const currentTotal = totalDownloadedBytes(userId);
+  const existing = findAssetForSong(userId, song, quality);
+  const existingDownloadId = existing ? findUserDownload.get(userId, String(existing.id))?.id : null;
+  const replacedBytes = existingDownloadId ? Number(existing.size_bytes ?? 0) : 0;
+  const asset = await ensureAsset({
+    userId,
+    song,
+    quality,
+    audioUrl,
+    existing,
+    limitBytes: maxUserDownloadBytes - currentTotal + replacedBytes,
+  });
+  if (!existingDownloadId && currentTotal + asset.sizeBytes > maxUserDownloadBytes) {
+    await removeAssetIfUnreferenced(asset.id);
+    throw httpError(507, "User download quota exceeded");
+  }
   insertDownload.run(randomUUID(), userId, asset.id, JSON.stringify(song), quality, nowMs());
-  const downloadId = findUserDownload.get(userId, asset.id)?.id;
+  const downloadId = existingDownloadId ?? findUserDownload.get(userId, asset.id)?.id;
   sendJson(res, 201, { download: { id: String(downloadId), song, quality, sizeBytes: asset.sizeBytes, streamUrl: `/api/me/downloads/${downloadId}/stream` } });
   return true;
 }
@@ -76,7 +90,8 @@ function streamDownload(res, userId, downloadId, req) {
   const song = JSON.parse(String(row.song_payload));
   const fileSize = Number(row.size_bytes ?? 0);
   const rangeHeader = String(req.headers["range"] ?? "");
-  const range = parseRangeHeader(rangeHeader, fileSize);
+  const range = rangeHeader.startsWith("bytes=") ? parseRangeHeader(rangeHeader, fileSize) : null;
+  if (rangeHeader.startsWith("bytes=") && !range) return rangeNotSatisfiable(res, fileSize);
   if (range) {
     res.writeHead(206, {
       "content-type": String(row.mime_type ?? "application/octet-stream"),
@@ -106,34 +121,48 @@ async function removeDownload(res, userId, downloadId) {
   }
   const assetId = String(row.asset_id ?? "");
   deleteDownload.run(userId, downloadId);
-  const refCount = countAssetReferences.get(assetId)?.ref_count ?? 0;
-  if (refCount === 0) {
-    const assetRow = getAssetFilePath.get(assetId);
-    if (assetRow) {
-      const filePath = String(assetRow.file_path);
-      await rm(filePath, { force: true }).catch(() => {});
-    }
-    deleteAsset.run(assetId);
-  }
+  await removeAssetIfUnreferenced(assetId);
   sendJson(res, 200, { ok: true });
   return true;
 }
 
-async function ensureAsset(userId, song, quality, audioUrl) {
-  const existing = findAsset.get(userId, song.provider.providerId, song.provider.source, song.providerSongId, quality);
+async function ensureAsset(options) {
+  const { userId, song, quality, audioUrl } = options;
+  const existing = options.existing ?? findAssetForSong(userId, song, quality);
   if (existing && existsSync(String(existing.file_path))) return normalizeAsset(existing);
-  const assetId = randomUUID();
+  const assetId = existing ? String(existing.id) : randomUUID();
   const ext = extensionFromUrl(audioUrl, quality);
   const dir = join(userDownloadRoot(userId), song.provider.providerId, song.provider.source, sanitizeSegment(song.providerSongId));
   mkdirSync(dir, { recursive: true });
   const filePath = join(dir, `${quality}.${ext}`);
   if (!isInsideUserDownloads(userId, filePath)) throw httpError(400, "Invalid song identity");
   const response = await fetchDownloadSource(audioUrl);
-  await writeLimitedResponse(response, filePath);
+  await writeLimitedResponse(response, filePath, downloadQuotaLimit(options.limitBytes));
   const fileStat = await stat(filePath);
   const mimeType = response.headers.get("content-type") ?? mimeFromExt(ext);
-  insertAsset.run(assetId, userId, song.provider.providerId, song.provider.source, song.providerSongId, quality, filePath, mimeType, fileStat.size, nowMs());
+  if (existing) updateAsset.run(filePath, mimeType, fileStat.size, nowMs(), assetId);
+  else insertAsset.run(assetId, userId, song.provider.providerId, song.provider.source, song.providerSongId, quality, filePath, mimeType, fileStat.size, nowMs());
   return { id: assetId, filePath, sizeBytes: fileStat.size, mimeType };
+}
+
+function totalDownloadedBytes(userId) {
+  return getDownloads.all(userId).reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0);
+}
+
+function findAssetForSong(userId, song, quality) {
+  return findAsset.get(userId, song.provider.providerId, song.provider.source, song.providerSongId, quality);
+}
+
+function downloadQuotaLimit(limitBytes) {
+  return { limitBytes, errorStatus: 507, errorMessage: "User download quota exceeded" };
+}
+
+async function removeAssetIfUnreferenced(assetId) {
+  const refCount = Number(countAssetReferences.get(assetId)?.ref_count ?? 0);
+  if (refCount > 0) return;
+  const assetRow = getAssetFilePath.get(assetId);
+  if (assetRow) await rm(String(assetRow.file_path), { force: true }).catch(() => {});
+  deleteAsset.run(assetId);
 }
 
 function normalizeSong(input) {
@@ -180,11 +209,9 @@ function normalizeQuality(value) {
 function stringValue(value) {
   return typeof value === "string" ? value : "";
 }
-
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 function userDownloadRoot(userId) {
   return join(downloadDir, sanitizeSegment(userId));
 }
@@ -243,8 +270,31 @@ function parseRangeHeader(rangeHeader, fileSize) {
   if (!rangeHeader || !rangeHeader.startsWith("bytes=")) return null;
   const parts = rangeHeader.slice(6).split("-");
   if (parts.length !== 2) return null;
-  const start = parts[0] ? Number(parts[0]) : 0;
-  const end = parts[1] ? Number(parts[1]) : fileSize - 1;
-  if (Number.isNaN(start) || Number.isNaN(end) || start < 0 || end >= fileSize || start > end) return null;
+  const startRaw = parts[0];
+  const endRaw = parts[1];
+  if ((!startRaw && !endRaw) || fileSize <= 0) return null;
+  if (!startRaw) return suffixRange(endRaw, fileSize);
+  const start = Number(startRaw);
+  const end = endRaw ? Number(endRaw) : fileSize - 1;
+  if (!isValidRangeNumber(start) || !isValidRangeNumber(end) || start >= fileSize || end >= fileSize || start > end) return null;
   return { start, end };
+}
+
+function suffixRange(endRaw, fileSize) {
+  const suffixLength = Number(endRaw);
+  if (!isValidRangeNumber(suffixLength) || suffixLength <= 0) return null;
+  return { start: Math.max(fileSize - suffixLength, 0), end: fileSize - 1 };
+}
+
+function isValidRangeNumber(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function rangeNotSatisfiable(res, fileSize) {
+  res.writeHead(416, {
+    "content-range": `bytes */${fileSize}`,
+    "accept-ranges": "bytes",
+  });
+  res.end();
+  return true;
 }

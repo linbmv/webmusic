@@ -1,11 +1,12 @@
 import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { createServer } from "node:http";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { handleAuth, isRegistrationEnabled } from "./backend/auth.mjs";
 import { handleDownloads } from "./backend/downloads.mjs";
 import { httpError, sendJson, sendText } from "./backend/http.mjs";
 import { handleLibrary } from "./backend/library.mjs";
+import { buildProxyUrl, matchesProxyPrefix } from "./backend/proxy.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const distDir = join(root, "dist");
@@ -17,42 +18,46 @@ const upstreams = {
 const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? "0.0.0.0";
 
-createServer(async (req, res) => {
-  try {
-    if (!req.url) return send(res, 400, "Bad request");
-    const url = new URL(req.url, `http://${req.headers.host ?? "127.0.0.1"}`);
-    if (url.pathname === "/api/config") {
-      sendJson(res, 200, { registrationEnabled: isRegistrationEnabled() });
-      return;
+export function createMusicServer() {
+  return createServer(async (req, res) => {
+    try {
+      if (!req.url) return send(res, 400, "Bad request");
+      const url = new URL(req.url, `http://${req.headers.host ?? "127.0.0.1"}`);
+      if (url.pathname === "/api/config") {
+        sendJson(res, 200, { registrationEnabled: isRegistrationEnabled() });
+        return;
+      }
+      if (await handleAuth(req, res, url)) return;
+      if (await handleLibrary(req, res, url)) return;
+      if (await handleDownloads(req, res, url)) return;
+      if (matchesProxyPrefix(url.pathname, "/api/music/free")) {
+        await proxyMusic(url, res, { prefix: "/api/music/free", baseUrl: upstreams.free });
+        return;
+      }
+      if (matchesProxyPrefix(url.pathname, "/api/music/karpov")) {
+        await proxyMusic(url, res, { prefix: "/api/music/karpov", baseUrl: upstreams.karpov, authorization: bearerFromEnv() });
+        return;
+      }
+      if (matchesProxyPrefix(url.pathname, "/api/music/gdstudio")) {
+        await proxyMusic(url, res, { prefix: "/api/music/gdstudio", baseUrl: upstreams.gdstudio });
+        return;
+      }
+      serveStatic(url.pathname, res);
+    } catch (error) {
+      const status = Number(error?.status ?? 502);
+      sendJson(res, status, { error: error instanceof Error ? error.message : "Server failure" });
     }
-    if (await handleAuth(req, res, url)) return;
-    if (await handleLibrary(req, res, url)) return;
-    if (await handleDownloads(req, res, url)) return;
-    if (url.pathname.startsWith("/api/music/free")) {
-      await proxyMusic(url, res, { prefix: "/api/music/free", baseUrl: upstreams.free });
-      return;
-    }
-    if (url.pathname.startsWith("/api/music/karpov")) {
-      await proxyMusic(url, res, { prefix: "/api/music/karpov", baseUrl: upstreams.karpov, authorization: bearerFromEnv() });
-      return;
-    }
-    if (url.pathname.startsWith("/api/music/gdstudio")) {
-      await proxyMusic(url, res, { prefix: "/api/music/gdstudio", baseUrl: upstreams.gdstudio });
-      return;
-    }
-    serveStatic(url.pathname, res);
-  } catch (error) {
-    const status = Number(error?.status ?? 502);
-    sendJson(res, status, { error: error instanceof Error ? error.message : "Server failure" });
-  }
-}).listen(port, host, () => {
-  console.log(`music clone server listening on http://${host}:${port}`);
-});
+  });
+}
+
+if (isMainModule()) {
+  createMusicServer().listen(port, host, () => {
+    console.log(`music clone server listening on http://${host}:${port}`);
+  });
+}
 
 async function proxyMusic(url, res, options) {
-  const upstreamPath = url.pathname.replace(options.prefix, "") || "";
-  const upstreamUrl = new URL(`${options.baseUrl}${upstreamPath}`);
-  url.searchParams.forEach((value, key) => upstreamUrl.searchParams.append(key, value));
+  const upstreamUrl = buildProxyUrl(url, options);
   const headers = {
     accept: "application/json,text/plain,*/*",
     "user-agent": "music-clone-bff/0.1",
@@ -99,4 +104,8 @@ function contentType(filePath) {
 
 function send(res, status, body) {
   sendText(res, status, body);
+}
+
+function isMainModule() {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

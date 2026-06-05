@@ -4,7 +4,7 @@ import { createClientId } from "@/utils/id";
 import type { NormalizedSong } from "@/types/music";
 
 type BottomSheetState =
-  | { type: "addToPlaylist"; song: NormalizedSong }
+  | { type: "addToPlaylist"; songs: NormalizedSong[]; title?: string }
   | { type: "queue" }
   | null;
 
@@ -52,7 +52,11 @@ export const useUiStore = defineStore("ui", () => {
   function closeLyrics(): void { lyricsOpen.value = false; }
 
   function openAddToPlaylist(song: NormalizedSong): void {
-    bottomSheet.value = { type: "addToPlaylist", song };
+    bottomSheet.value = { type: "addToPlaylist", songs: [song], title: song.name };
+  }
+  function openAddTracksToPlaylist(songs: NormalizedSong[], title?: string): void {
+    if (!songs.length) return;
+    bottomSheet.value = { type: "addToPlaylist", songs, title };
   }
   function openQueue(): void {
     bottomSheet.value = { type: "queue" };
@@ -111,6 +115,7 @@ export const useUiStore = defineStore("ui", () => {
     setNavHidden,
     setDarkTheme,
     openAddToPlaylist,
+    openAddTracksToPlaylist,
     openQueue,
     closeBottomSheet,
     openRenamePlaylist,

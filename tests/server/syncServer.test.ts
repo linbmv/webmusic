@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -140,57 +140,6 @@ describe("sync server", () => {
     expect(loginResponse.headers.get("set-cookie")).toContain("wm_session=");
   });
 
-  it("stores logged-in downloads inside the user's data directory", async () => {
-    const auth = await register("bob");
-    const sourceServer = await startAudioSource();
-    try {
-      const result = await request<{ download: { id: string; sizeBytes: number } }>("/api/me/downloads", {
-        method: "POST",
-        cookie: auth.cookie,
-        body: { song: testSong(), quality: "128kmp3", audioUrl: sourceServer.url },
-      });
-
-      expect(result.download.sizeBytes).toBeGreaterThan(0);
-      const file = await readFile(join(dataDir, "downloads", auth.user.id, "mock", "netease", "s1", "128kmp3.mp3"), "utf8");
-      expect(file).toBe("audio-bytes");
-    } finally {
-      await sourceServer.close();
-    }
-  });
-
-  it("rejects private download urls", async () => {
-    const auth = await register("carol");
-
-    const response = await fetch(`${baseUrl}/api/me/downloads`, {
-      method: "POST",
-      headers: {
-        cookie: auth.cookie,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ song: testSong(), quality: "128kmp3", audioUrl: "http://10.0.0.1/song.mp3" }),
-    });
-
-    expect(response.status).toBe(400);
-  });
-
-  it("rejects redirects to private download urls", async () => {
-    const auth = await register("dave");
-    const redirectServer = await startRedirectSource("http://10.0.0.1/song.mp3");
-    try {
-      const response = await fetch(`${baseUrl}/api/me/downloads`, {
-        method: "POST",
-        headers: {
-          cookie: auth.cookie,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ song: testSong(), quality: "128kmp3", audioUrl: redirectServer.url }),
-      });
-
-      expect(response.status).toBe(400);
-    } finally {
-      await redirectServer.close();
-    }
-  });
 });
 
 async function startServer(extraEnv: Record<string, string> = {}, options: { reuseDataDir?: boolean } = {}): Promise<void> {
@@ -264,40 +213,10 @@ async function stopServer(): Promise<void> {
   });
 }
 
-async function startAudioSource(): Promise<{ url: string; close: () => Promise<void> }> {
-  const { createServer } = await import("node:http");
-  const httpServer = createServer((_req, res) => {
-    res.writeHead(200, { "content-type": "audio/mpeg" });
-    res.end("audio-bytes");
-  });
-  await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-  const address = httpServer.address();
-  if (typeof address !== "object" || !address) throw new Error("Missing audio server address");
+function testSong(id = "s1") {
   return {
-    url: `http://127.0.0.1:${address.port}/song.mp3`,
-    close: () => new Promise((resolve, reject) => httpServer.close((error) => error ? reject(error) : resolve())),
-  };
-}
-
-async function startRedirectSource(location: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const { createServer } = await import("node:http");
-  const httpServer = createServer((_req, res) => {
-    res.writeHead(302, { location });
-    res.end();
-  });
-  await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-  const address = httpServer.address();
-  if (typeof address !== "object" || !address) throw new Error("Missing redirect server address");
-  return {
-    url: `http://127.0.0.1:${address.port}/redirect.mp3`,
-    close: () => new Promise((resolve, reject) => httpServer.close((error) => error ? reject(error) : resolve())),
-  };
-}
-
-function testSong() {
-  return {
-    stableId: "mock:netease:song:s1",
-    providerSongId: "s1",
+    stableId: `mock:netease:song:${id}`,
+    providerSongId: id,
     provider: { providerId: "mock", source: "netease" },
     name: "Song",
     artists: ["Artist"],

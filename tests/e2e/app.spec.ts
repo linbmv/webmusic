@@ -10,7 +10,6 @@ test("music shell renders final top bar and player", async ({ page }) => {
   const search = page.getByPlaceholder(searchPlaceholder);
   await expect(search).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "主页" })).toBeVisible();
-  await expect(toolbar.getByRole("link", { name: "搜索" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "歌单" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "设置" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "我的" })).toBeVisible();
@@ -33,7 +32,7 @@ test("music shell renders final top bar and player", async ({ page }) => {
   await expect(page.getByLabel("播放控制")).toBeVisible();
   await page.getByRole("button", { name: /专辑/ }).click();
   await expect(page.getByRole("button", { name: /专辑/ })).toHaveClass(/active/);
-  await toolbar.getByRole("link", { name: "搜索" }).click();
+  await search.focus();
   await expect(page).toHaveURL(/\/search/);
 
   // 榜单并入发现页内容区，不再作为顶部按钮

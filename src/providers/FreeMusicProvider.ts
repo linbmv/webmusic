@@ -1,10 +1,18 @@
 import { parseLyrics } from "@/lyrics/parser";
 import { zh } from "@/i18n/zh";
-import { createClientId } from "@/utils/id";
 import { FetchHttpClient } from "@/providers/http";
 import type { MusicProvider } from "@/providers/MusicProvider";
 import {
-  cleanupPlaybackUrl,
+  albumNameWithoutArtist,
+  isPlaceholderLyric,
+  lyricLineCount,
+  normalizeQualityResponse,
+  normalizeTypedSearchItem,
+  songMatchesAlbumArtist,
+  songToSearchItem,
+  typedItems,
+} from "@/providers/freeMusicUtils";
+import {
   normalizeAudioUrl,
   normalizeFreeMusicPlaylist,
   normalizeFreeMusicSong,
@@ -40,11 +48,7 @@ interface RecommendResponse { playlists?: unknown[]; page?: number; pageSize?: n
 interface SourcesResponse { all_sources?: MusicSourceId[]; descriptions?: Record<string, string> }
 interface PersonalFmResponse { songs?: unknown[]; tracks?: unknown[]; data?: unknown[] }
 
-const defaultQualities: QualityOption[] = [
-  { label: '128k MP3', value: '128kmp3', bitrate: 128 },
-  { label: '320k MP3', value: '320kmp3', bitrate: 320 },
-  { label: 'FLAC', value: 'flac' },
-];
+const defaultQualities: QualityOption[] = [{ label: "128k MP3", value: "128kmp3", bitrate: 128 }, { label: "320k MP3", value: "320kmp3", bitrate: 320 }, { label: "FLAC", value: "flac" }];
 
 export class FreeMusicProvider implements MusicProvider {
   readonly id = "freeMusic" as const;
@@ -74,7 +78,8 @@ export class FreeMusicProvider implements MusicProvider {
 
   async healthCheck(): Promise<ProviderHealth> {
     const startedAt = performance.now();
-    await this.listSources();
+    const result = await this.search({ q: zh.names.yinTian, type: "song", page: 1, pageSize: 1, sources: ["kuwo", "netease"] });
+    if (!result.items.length) throw new Error("FreeMusic health check returned no playable search result");
     return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };
   }
 
@@ -290,127 +295,4 @@ export class FreeMusicProvider implements MusicProvider {
     const items = Array.from(grouped.values());
     return { items, page: songResult.page, pageSize: songResult.pageSize, hasMore: songResult.hasMore, total: items.length };
   }
-}
-
-function normalizeQualityResponse(input: unknown, source: MusicSourceId): QualityOption[] {
-  const raw = extractQualityItems(input);
-  return raw.map((item) => normalizeQualityItem(item, source)).filter((item): item is QualityOption => Boolean(item));
-}
-
-function typedItems(data: TypedSearchResponse, type: string): unknown[] {
-  if (type === "album") return data.albums ?? [];
-  if (type === "artist") return data.artists ?? [];
-  if (type === "playlist") return data.playlists ?? [];
-  return [];
-}
-
-function normalizeTypedSearchItem(input: unknown, type: string): SearchListItem {
-  const raw = isRecord(input) ? input : {};
-  const source = asSource(raw.source);
-  const id = String(raw.id ?? raw.albumid ?? raw.artistid ?? raw.name ?? createClientId("fm"));
-  const title = decodeText(String(raw.name ?? raw.title ?? id));
-  const subtitle = typedSubtitle(raw, type);
-  const coverUrl = stringValue(raw.cover) ?? stringValue(raw.pic);
-  return { id: `freeMusic:${source}:${type}:${id}`, title, subtitle, coverUrl, source, raw: input };
-}
-
-function songToSearchItem(song: NormalizedSong): SearchListItem {
-  return {
-    id: song.stableId,
-    title: song.name,
-    subtitle: song.artistText,
-    coverUrl: song.coverUrl ?? song.album?.coverUrl,
-    source: song.provider.source,
-    raw: song.raw,
-  };
-}
-
-function typedSubtitle(raw: Record<string, unknown>, type: string): string | undefined {
-  if (type === "album") return [raw.artist, raw.musiccnt ? `${raw.musiccnt} 首` : undefined, raw.pub].filter(Boolean).map(String).join(" · ");
-  if (type === "artist") return raw.songnum ? `${raw.songnum} 首` : undefined;
-  if (type === "playlist") return [raw.creator, raw.track_count ? `${raw.track_count} 首` : undefined].filter(Boolean).map(String).join(" · ");
-  return undefined;
-}
-
-function asSource(value: unknown): MusicSourceId {
-  return value === "kuwo" ? "kuwo" : "netease";
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value ? cleanupPlaybackUrl(decodeText(value)) : undefined;
-}
-
-function decodeText(value: string): string {
-  return value.replace(/&nbsp;/g, " ").replace(/&apos;/g, "'").trim();
-}
-
-// 搜索结果的专辑名常带歌手前缀（"王杰 - LPCD45"），上游 /album/songs 只认纯专辑名（"LPCD45"）
-const albumPrefixSeparators = [" - ", " – ", " — ", " · ", "-", "–", "—", "·"];
-function albumNameWithoutArtist(name: string, artist?: string): string {
-  const decoded = decodeText(name);
-  if (!artist) return decoded;
-  const decodedArtist = decodeText(artist);
-  for (const separator of albumPrefixSeparators) {
-    const prefix = `${decodedArtist}${separator}`;
-    if (decoded.startsWith(prefix)) return decoded.slice(prefix.length).trim() || decoded;
-  }
-  return decoded;
-}
-
-// 专辑歌手可能是合唱/合辑（"王杰&林忆莲"、"张雨生&王杰&..."）；歌曲歌手文本命中任一即视为该专辑曲目
-function songMatchesAlbumArtist(song: NormalizedSong, albumArtist: string): boolean {
-  const tokens = decodeText(albumArtist)
-    .replace(/\\/g, "")
-    .split(/[&/、,]/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-  if (!tokens.length) return true;
-  const text = song.artistText;
-  return tokens.some((token) => text.includes(token));
-}
-
-function extractQualityItems(input: unknown): unknown[] {
-  if (Array.isArray(input)) return input;
-  if (!isRecord(input)) return [];
-  if (Array.isArray(input.qualities)) return input.qualities;
-  if (Array.isArray(input.data)) return input.data;
-  return [];
-}
-
-function normalizeQualityItem(input: unknown, source: MusicSourceId): QualityOption | null {
-  if (typeof input === "string") return qualityFromValue(input, source);
-  if (!isRecord(input)) return null;
-  const value = String(input.value ?? input.br ?? input.quality ?? "");
-  const option = qualityFromValue(value, source);
-  if (!option) return null;
-  return { ...option, label: String(input.label ?? input.name ?? option.label) };
-}
-
-function qualityFromValue(value: string, source: MusicSourceId): QualityOption | null {
-  if (value === "128kmp3" || value === "128") return { label: "128k MP3", value: "128kmp3", bitrate: 128, source };
-  if (value === "320kmp3" || value === "320") return { label: "320k MP3", value: "320kmp3", bitrate: 320, source };
-  if (value.toLowerCase() === "flac" || value === "2000kflac") return { label: "FLAC", value: "flac", source };
-  return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// 已知的"无歌词"占位文案：上游在缺词时会返回这些而非空串
-const placeholderLyrics = ["暂无歌词", "纯音乐，请欣赏", "纯音乐", "暂无动态歌词"];
-
-// 去掉时间戳/元信息后，统计真正承载歌词内容的行数，用于在两份 lrc 间择优
-function lyricLineCount(text: string): number {
-  if (!text) return 0;
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\[[^\]]*\]/g, "").trim())
-    .filter((line) => line && !placeholderLyrics.includes(line))
-    .length;
-}
-
-// 整段歌词去掉时间戳后只剩占位文案（或为空）时，视为无歌词
-function isPlaceholderLyric(text: string): boolean {
-  return lyricLineCount(text) === 0;
 }

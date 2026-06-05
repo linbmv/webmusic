@@ -41,6 +41,16 @@ describe("uiStore track actions context", () => {
     expect(sheet.playlistId).toBeUndefined();
     expect(sheet.isFavorites).toBeUndefined();
   });
+
+  it("opens add-to-playlist sheet with multiple songs", () => {
+    const ui = useUiStore();
+    ui.openAddTracksToPlaylist([song("a"), song("b")], "Album");
+    expect(ui.bottomSheet).toMatchObject({ type: "addToPlaylist", title: "Album" });
+    expect(ui.bottomSheet?.type === "addToPlaylist" ? ui.bottomSheet.songs.map((item) => item.stableId) : []).toEqual([
+      "mock:netease:song:a",
+      "mock:netease:song:b",
+    ]);
+  });
 });
 
 describe("uiStore playlist actions context", () => {

@@ -13,6 +13,29 @@ describe("FreeMusicProvider", () => {
     vi.restoreAllMocks();
   });
 
+  it("checks health through real search instead of the sources endpoint", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/api/music/free/search");
+      expect(url.searchParams.get("q")).toBe("\u9634\u5929");
+      expect(url.searchParams.get("pageSize")).toBe("1");
+      expect(url.searchParams.getAll("sources")).toEqual(["kuwo", "netease"]);
+      return jsonResponse({ songs: [{ id: "166739", name: "\u9634\u5929", artist: "\u83ab\u6587\u851a", source: "kuwo" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new FreeMusicProvider(config, false);
+
+    await expect(provider.healthCheck()).resolves.toMatchObject({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails health when the search probe returns no playable result", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ songs: [] })));
+    const provider = new FreeMusicProvider(config, false);
+
+    await expect(provider.healthCheck()).rejects.toThrow("FreeMusic health check returned no playable search result");
+  });
+
   it("falls back to song aggregation when artist search returns no artist list", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

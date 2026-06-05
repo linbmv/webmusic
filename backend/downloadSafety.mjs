@@ -45,9 +45,12 @@ export async function fetchDownloadSource(rawUrl) {
   throw httpError(400, "Download source redirected too many times");
 }
 
-export async function writeLimitedResponse(response, filePath) {
+export async function writeLimitedResponse(response, filePath, options = {}) {
+  const limitBytes = limitedByteCount(options.limitBytes);
+  const errorStatus = Number(options.errorStatus ?? 413);
+  const errorMessage = typeof options.errorMessage === "string" ? options.errorMessage : "Downloaded audio is too large";
   try {
-    await pipeline(response.body, byteLimitStream(maxDownloadBytes), createWriteStream(filePath));
+    await pipeline(response.body, byteLimitStream(limitBytes, { status: errorStatus, message: errorMessage }), createWriteStream(filePath));
   } catch (error) {
     await rm(filePath, { force: true });
     throw error;
@@ -136,15 +139,22 @@ function isAllowedContentType(type) {
   return type.startsWith("audio/") || type.includes("octet-stream") || type.includes("mpegurl");
 }
 
-function byteLimitStream(limitBytes) {
+function byteLimitStream(limitBytes, error) {
   let total = 0;
   return new Transform({
     transform(chunk, _encoding, callback) {
       total += chunk.length;
-      if (total > limitBytes) callback(httpError(413, "Downloaded audio is too large"));
+      if (total > limitBytes) callback(httpError(error.status, error.message));
       else callback(null, chunk);
     },
   });
+}
+
+function limitedByteCount(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return maxDownloadBytes;
+  if (parsed <= 0) return 0;
+  return Math.min(parsed, maxDownloadBytes);
 }
 
 function isBlockedAddress(address) {

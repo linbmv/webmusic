@@ -111,6 +111,14 @@ export const useLibraryStore = defineStore("library", () => {
     notifyLibraryChanged();
   }
 
+  async function addTracksToPlaylist(playlistId: string, items: NormalizedSong[]): Promise<void> {
+    if (!items.length) return;
+    await repository.addTracksToPlaylist(playlistId, items);
+    playlists.value = await repository.listPlaylists();
+    songs.value = await repository.listLibrarySongs();
+    notifyLibraryChanged();
+  }
+
   async function removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {
     await repository.removeTrackFromPlaylist(playlistId, songId);
     playlists.value = await repository.listPlaylists();
@@ -155,6 +163,7 @@ export const useLibraryStore = defineStore("library", () => {
     renamePlaylist,
     deletePlaylist,
     addTrackToPlaylist,
+    addTracksToPlaylist,
     removeTrackFromPlaylist,
     listPlaylistTracks,
     recordRecent,

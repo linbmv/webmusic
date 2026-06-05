@@ -5,35 +5,10 @@
         <h1 class="page-title">{{ zh.app.library }}</h1>
         <p class="page-subtitle">{{ zh.music.librarySubtitle }}</p>
       </div>
-      <button class="primary-btn create-playlist" @click="createLocalPlaylist"><Plus :size="15" />{{ zh.common.create }}</button>
+      <button class="primary-btn create-playlist" @click="createLocalPlaylist"><Plus :size="16" />{{ zh.common.create }}{{ zh.music.playlists }}</button>
     </header>
 
-    <section class="library-shortcuts section" :aria-label="zh.app.library">
-      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'favorites' }" @click="toggleTab('favorites')">
-        <span class="shortcut-icon"><Heart :size="17" /></span>
-        <span class="shortcut-copy">
-          <strong>{{ zh.music.favoriteSongs }}</strong>
-          <small>{{ library.favorites.length }} {{ zh.common.songUnit }}</small>
-        </span>
-      </button>
-      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'recent' }" @click="toggleTab('recent')">
-        <span class="shortcut-icon"><Clock3 :size="17" /></span>
-        <span class="shortcut-copy">
-          <strong>{{ zh.music.recent }}</strong>
-          <small>{{ library.recents.length }} {{ zh.common.songUnit }}</small>
-        </span>
-      </button>
-    </section>
-
-    <section v-if="activeTab === 'favorites'" class="section">
-      <div class="section-head">
-        <h2 class="section-title">{{ zh.music.favoriteSongs }}</h2>
-      </div>
-      <TrackList v-if="favoriteRows.length" :items="favoriteRows" is-favorites />
-      <p v-else class="muted empty">{{ zh.music.emptyPlaylist }}</p>
-    </section>
-
-    <section class="section">
+    <section class="section playlist-section">
       <div class="section-head">
         <h2 class="section-title">{{ zh.music.playlists }}</h2>
         <span class="section-hint">{{ zh.music.playlistManageHint }}</span>
@@ -71,6 +46,31 @@
           </button>
         </div>
       </div>
+    </section>
+
+    <section class="library-shortcuts section" :aria-label="zh.app.library">
+      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'favorites' }" @click="toggleTab('favorites')">
+        <span class="shortcut-icon"><Heart :size="17" /></span>
+        <span class="shortcut-copy">
+          <strong>{{ zh.music.favoriteSongs }}</strong>
+          <small>{{ library.favorites.length }} {{ zh.common.songUnit }}</small>
+        </span>
+      </button>
+      <button class="library-shortcut" type="button" :class="{ active: activeTab === 'recent' }" @click="toggleTab('recent')">
+        <span class="shortcut-icon"><Clock3 :size="17" /></span>
+        <span class="shortcut-copy">
+          <strong>{{ zh.music.recent }}</strong>
+          <small>{{ library.recents.length }} {{ zh.common.songUnit }}</small>
+        </span>
+      </button>
+    </section>
+
+    <section v-if="activeTab === 'favorites'" class="section">
+      <div class="section-head">
+        <h2 class="section-title">{{ zh.music.favoriteSongs }}</h2>
+      </div>
+      <TrackList v-if="favoriteRows.length" :items="favoriteRows" is-favorites />
+      <p v-else class="muted empty">{{ zh.music.emptyPlaylist }}</p>
     </section>
 
     <section class="section">
@@ -195,7 +195,14 @@ onMounted(() => void library.load());
 
 <style scoped>
 .create-playlist {
+  min-width: 96px;
+  height: 40px;
+  flex: 0 0 auto;
   gap: 6px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .library-shortcuts {

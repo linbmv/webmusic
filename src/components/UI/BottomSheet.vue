@@ -60,21 +60,21 @@ function containsActiveSong(playlistId: string): boolean {
   const sheet = ui.bottomSheet;
   if (sheet?.type !== "addToPlaylist") return false;
   const tracks = library.listPlaylistTracks(playlistId);
-  return tracks.some((song) => song.stableId === sheet.song.stableId);
+  const ids = new Set(tracks.map((song) => song.stableId));
+  return sheet.songs.every((song) => ids.has(song.stableId));
 }
 
 async function onAdd(playlistId: string): Promise<void> {
   if (ui.bottomSheet?.type !== "addToPlaylist") return;
-  const song = ui.bottomSheet.song;
-  await library.addTrackToPlaylist(playlistId, song);
+  await library.addTracksToPlaylist(playlistId, ui.bottomSheet.songs);
   ui.closeBottomSheet();
 }
 
 async function onCreate(): Promise<void> {
   if (ui.bottomSheet?.type !== "addToPlaylist") return;
-  const song = ui.bottomSheet.song;
+  const songs = ui.bottomSheet.songs;
   const playlist = await library.createPlaylist(`${zh.music.playlists} ${library.playlists.length + 1}`);
-  await library.addTrackToPlaylist(playlist.id, song);
+  await library.addTracksToPlaylist(playlist.id, songs);
   ui.closeBottomSheet();
 }
 

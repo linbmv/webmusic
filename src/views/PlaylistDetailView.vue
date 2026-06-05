@@ -14,7 +14,12 @@
       <div class="ratio-cover" />
       <div>
         <p class="muted">{{ detailText }}</p>
-        <button class="primary-btn" :disabled="!rows.length" @click="playAll">{{ zh.common.play }}</button>
+        <div class="hero-actions">
+          <button class="primary-btn" :disabled="!rows.length" @click="playAll">{{ zh.common.play }}</button>
+          <button class="secondary-btn" :disabled="!rows.length || downloading" @click="downloadAll">
+            <Download :size="15" />{{ downloadText }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -30,21 +35,30 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ChevronLeft } from "lucide-vue-next";
+import { ChevronLeft, Download } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import TrackList from "@/components/Track/TrackList.vue";
+import { downloadSongsToServer } from "@/playback/downloadBatch";
+import { useAccountStore } from "@/stores/accountStore";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useMusicStore } from "@/stores/musicStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useProviderStore } from "@/stores/providerStore";
+import { useUiStore } from "@/stores/uiStore";
+import type { NormalizedSong } from "@/types/music";
 import type { TrackRowItem } from "@/types/ui";
 
 const route = useRoute();
 const router = useRouter();
+const account = useAccountStore();
 const music = useMusicStore();
 const library = useLibraryStore();
 const player = usePlayerStore();
+const providerStore = useProviderStore();
+const ui = useUiStore();
+const downloading = ref(false);
 
 const playlistId = computed(() => String(route.params.id));
 // 本地歌单（IndexedDB）与在线歌单共用 /playlist/:id 路由：先判定是否本地歌单
@@ -62,6 +76,7 @@ const title = computed(() => {
 const detailText = computed(() => `${rows.value.length} ${zh.common.songUnit}`);
 const statusText = computed(() => (isLocal.value ? "" : music.loading ? "..." : music.activeProviderName));
 const emptyText = computed(() => (music.loading ? "..." : zh.music.emptyPlaylist));
+const downloadText = computed(() => (downloading.value ? zh.music.downloading : zh.music.downloadAll));
 
 async function load(): Promise<void> {
   await library.load();
@@ -72,6 +87,41 @@ async function load(): Promise<void> {
 async function playAll(): Promise<void> {
   const songs = isLocal.value ? library.listPlaylistTracks(playlistId.value) : music.playlistSongs;
   if (songs.length) await player.playQueue(songs, 0);
+}
+
+async function downloadAll(): Promise<void> {
+  if (downloading.value) return;
+  if (!account.user) {
+    ui.toast(zh.music.batchDownloadLoginRequired);
+    return;
+  }
+  downloading.value = true;
+  try {
+    const songs = await playlistSongsForDownload();
+    if (!songs.length) {
+      ui.toast(zh.music.batchDownloadEmpty);
+      return;
+    }
+    ui.toast(zh.music.batchDownloadStart.replace("{count}", String(songs.length)));
+    const providers = [providerStore.activeProvider, ...providerStore.registry.getFallbacks()];
+    const summary = await downloadSongsToServer(songs, providers);
+    await account.refreshDownloads();
+    ui.toast(downloadSummaryText(summary.succeeded, summary.failed));
+  } catch (error) {
+    ui.toast(`${zh.music.batchDownloadFailed}: ${error instanceof Error ? error.message : zh.common.unknownError}`);
+  } finally {
+    downloading.value = false;
+  }
+}
+
+async function playlistSongsForDownload(): Promise<NormalizedSong[]> {
+  if (isLocal.value) return library.listPlaylistTracks(playlistId.value);
+  return music.loadFullPlaylistSongs(playlistId.value, playlistSource.value);
+}
+
+function downloadSummaryText(succeeded: number, failed: number): string {
+  if (!failed) return zh.music.batchDownloadSaved.replace("{count}", String(succeeded));
+  return zh.music.batchDownloadPartial.replace("{success}", String(succeeded)).replace("{failed}", String(failed));
 }
 
 onMounted(() => void load());
@@ -94,9 +144,19 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.playlist-hero div:last-child {
+.playlist-hero div:last-child,
+.hero-actions {
   display: grid;
   gap: 12px;
+}
+
+.hero-actions {
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  align-items: center;
+}
+
+.hero-actions .secondary-btn {
+  white-space: nowrap;
 }
 
 .empty {

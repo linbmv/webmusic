@@ -246,8 +246,9 @@ export const usePlayerStore = defineStore("player", () => {
     try {
       await loadLyric(song);
       await libraryStore.recordRecent(song);
-    } catch {
-      state.value = "error";
+    } catch (caught) {
+      // 播放已经成功后，歌词或最近播放写入失败不能覆盖真实播放状态。
+      console.warn("Track detail sync failed", caught);
     }
   }
 
