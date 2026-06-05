@@ -1,5 +1,5 @@
 <template>
-  <div class="shell music-app">
+  <div class="shell music-app" @contextmenu.prevent>
     <section class="fm-main">
       <header class="fm-toolbar">
         <RouterLink to="/discover" class="fm-top-icon" :aria-label="zh.app.home"><House /></RouterLink>

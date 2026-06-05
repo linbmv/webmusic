@@ -19,6 +19,13 @@
   overflow: hidden;
 }
 
+.music-app,
+.music-app a,
+.music-app button,
+.music-app [role="button"] {
+  -webkit-touch-callout: none;
+}
+
 .page {
   height: 100%;
   overflow-y: auto;
