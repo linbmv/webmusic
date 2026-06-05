@@ -81,7 +81,7 @@ export class AudioEngine {
   setMode(mode: PlaybackMode): void {
     this.queue = this.queue.setMode(mode);
     // 单曲循环用原生 audio.loop：后台/锁屏下由媒体元素自动无缝续播，
-    // 不触发 ended，也就不依赖“ended 内同步 play()”的手势延续特权
+    // 不触发 ended，也就不依赖"ended 内同步 play()"的手势延续特权
     this.audio.loop = mode === "single";
   }
 
@@ -203,7 +203,6 @@ export class AudioEngine {
   }
 
   private preResolveNext(quality: AudioQuality): void {
-    if (document.visibilityState !== "visible") return;
     const next = this.queue.peekNext();
     if (!next || next.stableId === this.currentSong?.stableId) return;
     const key = cacheKey(next, quality);
@@ -221,7 +220,7 @@ export class AudioEngine {
   // 自然播放结束时的切歌。后台/锁屏下能否自动切下一首，取决于 play() 是否在 ended 事件的
   // 同一同步调用栈内发起：浏览器（尤其 iOS Safari）只把这种 play() 视为正在进行播放的延续而放行，
   // 任何 await（哪怕命中缓存只是一个微任务）都会断掉手势延续特权，导致后台切歌被拒。
-  // 因此命中预解析直链缓存时走“同步换源 + 同步 play()”快路径；未命中再回退到异步 next()。
+  // 因此命中预解析直链缓存时走"同步换源 + 同步 play()"快路径；未命中再回退到异步 next()。
   private handleEnded(): void {
     const quality = this.currentQuality;
     const advanced = this.queue.next();
@@ -239,7 +238,10 @@ export class AudioEngine {
         this.emitTrackChange();
         Promise.resolve(playPromise)
           .then(() => this.preResolveNext(quality))
-          .catch(() => this.setState("paused"));
+          .catch(() => {
+            // 快路径 play() 失败（罕见，但后台可能发生）→ 保持暂停，依赖 MediaSession play 恢复
+            this.setState("paused");
+          });
         return;
       }
     }

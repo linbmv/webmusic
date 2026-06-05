@@ -8,7 +8,7 @@
     </div>
     <div
       class="track-row"
-      :class="{ compact, swiping: dragging }"
+      :class="{ compact, swiping: dragging, 'currently-playing': isCurrentlyPlaying }"
       :style="{ transform: `translateX(${swipeOffset}px)` }"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
@@ -20,6 +20,9 @@
       @touchcancel="onTouchCancel"
       @contextmenu.prevent="onLongPress"
     >
+      <div v-if="isCurrentlyPlaying" class="playing-indicator" aria-label="正在播放">
+        <Volume2 :size="20" />
+      </div>
       <div v-if="item.cover" class="track-cover" :style="{ backgroundImage: `url(${item.cover})` }" />
       <div v-else class="track-cover placeholder" />
       <div class="track-copy">
@@ -38,7 +41,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Download, MoreHorizontal, Trash2 } from "lucide-vue-next";
+import { Download, MoreHorizontal, Trash2, Volume2 } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useAccountStore } from "@/stores/accountStore";
@@ -62,7 +65,7 @@ const library = useLibraryStore();
 // 滑动触发阈值与上限：超过 THRESHOLD 松手即触发动作，最大位移 MAX，小于 TAP_SLOP 视为点击
 const THRESHOLD = 64;
 const MAX = 96;
-const TAP_SLOP = 10;
+const TAP_SLOP = 16;
 
 const swipeOffset = ref(0);
 const dragging = ref(false);
@@ -78,6 +81,10 @@ const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 
 // 只有处于歌单或收藏上下文时才允许左滑删除；搜索结果等无删除语义
 const canDelete = computed(() => Boolean(props.playlistId) || Boolean(props.isFavorites));
+// 当前歌曲是否正在播放
+const isCurrentlyPlaying = computed(() => {
+  return Boolean(props.item.song && player.currentSong && player.currentSong.stableId === props.item.song.stableId);
+});
 
 function clearLongPress(): void {
   if (longPressTimer.value) {
@@ -177,6 +184,7 @@ function onTouchMove(event: TouchEvent): void {
   if (!moved.value && Math.abs(deltaY) > TAP_SLOP && Math.abs(deltaY) > Math.abs(deltaX)) {
     cancelDrag();
     touchActive.value = false;
+    clearLongPress();
     return;
   }
   moved.value = true;
@@ -249,7 +257,16 @@ async function addToPlaylistFlow(): Promise<void> {
   // 仅一个歌单时直接加入并提供撤销；多个或为空时弹出选择/新建面板
   if (playlists.length === 1) {
     const target = playlists[0];
+    const tracks = library.listPlaylistTracks(target.id);
+    if (tracks.some((t) => t.stableId === song.stableId)) {
+      ui.toast(`${song.name} 已在歌单中`);
+      return;
+    }
     await library.addTrackToPlaylist(target.id, song);
+    ui.toast(`已加入 ${target.name}`, {
+      actionLabel: zh.music.undo,
+      action: () => void library.removeTrackFromPlaylist(target.id, song.stableId),
+    });
   } else {
     ui.openAddToPlaylist(song);
   }
@@ -332,6 +349,29 @@ async function onDelete(): Promise<void> {
 
 .track-row.swiping {
   transition: none;
+}
+
+.playing-indicator {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0a84ff;
+  z-index: 2;
+  pointer-events: none;
+  animation: pulse-playing 2s ease-in-out infinite;
+}
+
+@keyframes pulse-playing {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.track-row.currently-playing .track-cover {
+  opacity: 0.85;
 }
 
 .track-cover {
