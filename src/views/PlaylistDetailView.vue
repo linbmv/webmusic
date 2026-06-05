@@ -153,8 +153,8 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 <style scoped>
 .playlist-hero {
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
 }
 
@@ -166,21 +166,47 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 .playlist-hero div:last-child,
 .hero-actions {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  justify-items: start;
+}
+
+.hero-actions .primary-btn,
+.hero-actions .secondary-btn {
+  width: min(100%, 160px);
+  min-height: 34px;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+.hero-actions .primary-btn {
+  min-width: 64px;
+  font-size: 13px;
 }
 
 .hero-actions .secondary-btn {
-  white-space: nowrap;
+  justify-content: flex-start;
+  font-size: 12px;
 }
 
 .empty {
   padding: 32px 0;
   text-align: center;
+}
+
+@media (max-width: 380px) {
+  .playlist-hero {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .hero-actions .primary-btn,
+  .hero-actions .secondary-btn {
+    width: min(100%, 142px);
+  }
 }
 </style>

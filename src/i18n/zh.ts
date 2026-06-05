@@ -83,7 +83,7 @@ export const zh = {
     previousLyric: "\u4e0a\u4e00\u53e5\u6b4c\u8bcd",
     nextLyric: "\u4e0b\u4e00\u53e5\u6b4c\u8bcd",
     lyric: "\u6b4c\u8bcd",
-    lyricShort: "\u8bcd",
+    lyricShort: "LRC",
     noLyric: "\u6682\u65e0\u6b4c\u8bcd",
     progress: "\u64ad\u653e\u8fdb\u5ea6",
     controls: "\u64ad\u653e\u63a7\u5236",

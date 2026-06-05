@@ -114,12 +114,12 @@ function isDesktopPointer(): boolean {
   left: 8px;
   right: 8px;
   bottom: calc(var(--safe-bottom) + var(--browser-bottom-offset) + 8px);
-  min-height: 58px;
+  min-height: 56px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px 12px;
-  border-radius: var(--radius-md);
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 14px;
   background: var(--glass-strong);
   backdrop-filter: saturate(180%) blur(20px);
   border: 0.5px solid var(--bg-border);
@@ -127,8 +127,8 @@ function isDesktopPointer(): boolean {
 }
 
 .bar-cover {
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.08);
@@ -136,9 +136,9 @@ function isDesktopPointer(): boolean {
 }
 
 .bar-copy {
+  display: none;
   min-width: 0;
   flex: 1;
-  display: grid;
   gap: 3px;
 }
 
@@ -155,20 +155,24 @@ function isDesktopPointer(): boolean {
 }
 
 .bar-controls {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  gap: 3px;
+  min-width: 0;
 }
 
 .bar-controls .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: 10px;
 }
 
 .play-btn {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
   border-radius: 50%;
   display: grid;
@@ -178,11 +182,11 @@ function isDesktopPointer(): boolean {
 }
 
 .lyric-btn {
-  min-width: 30px;
+  min-width: 34px;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 5px;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   background: transparent;
@@ -203,6 +207,18 @@ function isDesktopPointer(): boolean {
     right: 16px;
     bottom: 12px;
     min-height: 64px;
+    gap: 12px;
+    padding: 7px 12px;
+    border-radius: var(--radius-md);
+  }
+
+  .bar-cover {
+    width: 42px;
+    height: 42px;
+  }
+
+  .bar-copy {
+    display: grid;
   }
 
   .bar-progress {
@@ -227,7 +243,56 @@ function isDesktopPointer(): boolean {
   }
 
   .bar-controls {
+    flex: 0 0 auto;
+    justify-content: flex-start;
     gap: 6px;
+  }
+
+  .bar-controls .icon-btn {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+
+  .play-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .lyric-btn {
+    min-width: 38px;
+    height: 32px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .player-bar {
+    left: 6px;
+    right: 6px;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .bar-cover {
+    width: 34px;
+    height: 34px;
+  }
+
+  .bar-controls .icon-btn {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+
+  .play-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .lyric-btn {
+    min-width: 32px;
   }
 }
 

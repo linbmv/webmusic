@@ -195,13 +195,14 @@ onMounted(() => void library.load());
 
 <style scoped>
 .create-playlist {
-  min-width: 96px;
-  height: 40px;
+  min-width: 0;
+  height: 34px;
   flex: 0 0 auto;
-  gap: 6px;
-  padding: 0 14px;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 10px;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
 }
 
@@ -289,6 +290,16 @@ onMounted(() => void library.load());
 }
 
 @media (max-width: 360px) {
+  .page-header {
+    align-items: flex-start;
+  }
+
+  .create-playlist {
+    height: 32px;
+    padding-inline: 9px;
+    font-size: 12px;
+  }
+
   .library-shortcuts {
     grid-template-columns: 1fr;
   }
