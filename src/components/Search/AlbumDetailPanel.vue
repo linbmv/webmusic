@@ -13,7 +13,7 @@
           <Play :size="14" fill="currentColor" />{{ zh.music.playAll }}
         </button>
         <button class="sl-action secondary" :disabled="!songs.length" @click="addAllToPlaylist">
-          <Plus :size="14" />{{ zh.music.addToPlaylist }}
+          <Plus :size="14" />{{ zh.music.addAlbumToPlaylist }}
         </button>
       </div>
     </div>

@@ -59,6 +59,8 @@ const player = usePlayerStore();
 const providerStore = useProviderStore();
 const ui = useUiStore();
 const downloading = ref(false);
+const downloadProgress = ref<{ done: number; total: number } | null>(null);
+const loadingDownloadSongs = ref(false);
 
 const playlistId = computed(() => String(route.params.id));
 // 本地歌单（IndexedDB）与在线歌单共用 /playlist/:id 路由：先判定是否本地歌单
@@ -74,9 +76,18 @@ const title = computed(() => {
   return music.playlistDetail?.name ?? zh.music.playlists;
 });
 const detailText = computed(() => `${rows.value.length} ${zh.common.songUnit}`);
-const statusText = computed(() => (isLocal.value ? "" : music.loading ? "..." : music.activeProviderName));
+const statusText = computed(() => downloadStatusText.value || providerStatusText.value);
 const emptyText = computed(() => (music.loading ? "..." : zh.music.emptyPlaylist));
-const downloadText = computed(() => (downloading.value ? zh.music.downloading : zh.music.downloadAll));
+const downloadText = computed(() => (downloading.value ? zh.music.downloading : zh.music.downloadAllHighQuality));
+const providerStatusText = computed(() => (isLocal.value ? "" : music.loading ? "..." : music.activeProviderName));
+const downloadStatusText = computed(() => {
+  if (!downloading.value) return "";
+  if (loadingDownloadSongs.value) return zh.music.batchDownloadLoadingPlaylist;
+  if (!downloadProgress.value) return zh.music.downloading;
+  return zh.music.batchDownloadProgress
+    .replace("{done}", String(downloadProgress.value.done))
+    .replace("{total}", String(downloadProgress.value.total));
+});
 
 async function load(): Promise<void> {
   await library.load();
@@ -96,22 +107,30 @@ async function downloadAll(): Promise<void> {
     return;
   }
   downloading.value = true;
+  downloadProgress.value = null;
+  loadingDownloadSongs.value = !isLocal.value;
   try {
     const songs = await playlistSongsForDownload();
+    loadingDownloadSongs.value = false;
     if (!songs.length) {
       ui.toast(zh.music.batchDownloadEmpty);
       return;
     }
     ui.toast(zh.music.batchDownloadStart.replace("{count}", String(songs.length)));
     const providers = [providerStore.activeProvider, ...providerStore.registry.getFallbacks()];
-    const summary = await downloadSongsToServer(songs, providers);
+    const summary = await downloadSongsToServer(songs, providers, { onProgress: updateDownloadProgress });
     await account.refreshDownloads();
     ui.toast(downloadSummaryText(summary.succeeded, summary.failed));
   } catch (error) {
     ui.toast(`${zh.music.batchDownloadFailed}: ${error instanceof Error ? error.message : zh.common.unknownError}`);
   } finally {
     downloading.value = false;
+    loadingDownloadSongs.value = false;
   }
+}
+
+function updateDownloadProgress(progress: { done: number; total: number }): void {
+  downloadProgress.value = { done: progress.done, total: progress.total };
 }
 
 async function playlistSongsForDownload(): Promise<NormalizedSong[]> {
@@ -151,7 +170,8 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 }
 
 .hero-actions {
-  grid-template-columns: repeat(2, minmax(0, max-content));
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
 }
 

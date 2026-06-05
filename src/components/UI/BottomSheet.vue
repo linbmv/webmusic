@@ -7,12 +7,12 @@
     </header>
 
     <template v-if="isAddToPlaylist">
-      <button class="sheet-row create" @click="onCreate"><Plus :size="18" />{{ zh.common.create }}{{ zh.music.playlists }}</button>
+      <button class="sheet-row create" @click="onCreate"><Plus :size="18" />{{ createLabel }}</button>
       <button
         v-for="playlist in library.playlists"
         :key="playlist.id"
         class="sheet-row"
-        @click="onAdd(playlist.id)"
+        @click="onAdd(playlist.id, playlist.name)"
       >
         <Check v-if="containsActiveSong(playlist.id)" :size="18" class="check" />
         <span v-else class="check-placeholder" />
@@ -54,7 +54,16 @@ const player = usePlayerStore();
 const open = computed(() => ui.bottomSheet !== null);
 const isAddToPlaylist = computed(() => ui.bottomSheet?.type === "addToPlaylist");
 const isQueue = computed(() => ui.bottomSheet?.type === "queue");
-const title = computed(() => (isQueue.value ? zh.common.queue : zh.music.addToPlaylist));
+const addSheet = computed(() => ui.bottomSheet?.type === "addToPlaylist" ? ui.bottomSheet : null);
+const title = computed(() => {
+  if (isQueue.value) return zh.common.queue;
+  const count = addSheet.value?.songs.length ?? 0;
+  return count ? `${zh.music.addToPlaylist} · ${count} ${zh.common.songUnit}` : zh.music.addToPlaylist;
+});
+const createLabel = computed(() => {
+  const name = defaultPlaylistName();
+  return name ? formatName(zh.music.createPlaylistAndAdd, name) : zh.common.createPlaylist;
+});
 
 function containsActiveSong(playlistId: string): boolean {
   const sheet = ui.bottomSheet;
@@ -64,18 +73,34 @@ function containsActiveSong(playlistId: string): boolean {
   return sheet.songs.every((song) => ids.has(song.stableId));
 }
 
-async function onAdd(playlistId: string): Promise<void> {
+async function onAdd(playlistId: string, playlistName: string): Promise<void> {
   if (ui.bottomSheet?.type !== "addToPlaylist") return;
-  await library.addTracksToPlaylist(playlistId, ui.bottomSheet.songs);
+  const songs = ui.bottomSheet.songs;
+  await library.addTracksToPlaylist(playlistId, songs);
+  ui.toast(formatAddedMessage(playlistName, songs.length));
   ui.closeBottomSheet();
 }
 
 async function onCreate(): Promise<void> {
   if (ui.bottomSheet?.type !== "addToPlaylist") return;
   const songs = ui.bottomSheet.songs;
-  const playlist = await library.createPlaylist(`${zh.music.playlists} ${library.playlists.length + 1}`);
+  const playlistName = defaultPlaylistName() || `${zh.music.playlists} ${library.playlists.length + 1}`;
+  const playlist = await library.createPlaylist(playlistName);
   await library.addTracksToPlaylist(playlist.id, songs);
+  ui.toast(formatAddedMessage(playlist.name, songs.length));
   ui.closeBottomSheet();
+}
+
+function defaultPlaylistName(): string {
+  return ui.bottomSheet?.type === "addToPlaylist" ? ui.bottomSheet.title?.trim() ?? "" : "";
+}
+
+function formatAddedMessage(name: string, count: number): string {
+  return zh.music.addedSongsToPlaylist.replace("{name}", name).replace("{count}", String(count));
+}
+
+function formatName(template: string, name: string): string {
+  return template.replace("{name}", name);
 }
 
 async function onPlayQueueItem(index: number): Promise<void> {

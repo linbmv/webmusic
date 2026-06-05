@@ -5,7 +5,7 @@
         <h1 class="page-title">{{ zh.app.library }}</h1>
         <p class="page-subtitle">{{ zh.music.librarySubtitle }}</p>
       </div>
-      <button class="primary-btn create-playlist" @click="createLocalPlaylist"><Plus :size="16" />{{ zh.common.create }}{{ zh.music.playlists }}</button>
+      <button class="primary-btn create-playlist" @click="createLocalPlaylist"><Plus :size="16" />{{ zh.common.createPlaylist }}</button>
     </header>
 
     <section class="section playlist-section">
