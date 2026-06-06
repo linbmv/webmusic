@@ -116,7 +116,7 @@ export class AudioEngine {
       this.currentSong = song;
       this.setState("playing");
       this.emitTrackChange();
-      this.preResolveNext(quality);
+      this.preResolveNeighbors(quality);
     } catch {
       this.setState("error");
       throw new Error(`Unable to play ${song.name}`);
@@ -140,12 +140,14 @@ export class AudioEngine {
   }
 
   async next(): Promise<void> {
+    if (this.playCachedAdvance("next")) return;
     this.queue = this.queue.next();
     this.currentSong = this.queue.current;
     await this.playCurrent();
   }
 
   async previous(): Promise<void> {
+    if (this.playCachedAdvance("previous")) return;
     this.queue = this.queue.previous();
     this.currentSong = this.queue.current;
     await this.playCurrent();
@@ -193,22 +195,40 @@ export class AudioEngine {
   }
 
   private async resolvePlayableUrl(song: NormalizedSong, quality: AudioQuality): Promise<AudioUrlResult> {
-    const key = cacheKey(song, quality);
-    const cached = this.preResolvedUrls.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
-      this.preResolvedUrls.delete(key);
-      return cached.result;
-    }
+    const cached = this.takeCachedUrl(song, quality);
+    if (cached) return cached;
     return this.fallback.resolvePlayableUrl(song, quality);
   }
 
-  private preResolveNext(quality: AudioQuality): void {
-    const next = this.queue.peekNext();
-    if (!next || next.stableId === this.currentSong?.stableId) return;
-    const key = cacheKey(next, quality);
+  private takeCachedUrl(song: NormalizedSong, quality: AudioQuality): AudioUrlResult | null {
+    const key = cacheKey(song, quality);
+    const cached = this.preResolvedUrls.get(key);
+    if (!cached) return null;
+    if (cached.expiresAt <= Date.now()) {
+      this.preResolvedUrls.delete(key);
+      return null;
+    }
+    this.preResolvedUrls.delete(key);
+    return cached.result;
+  }
+
+  private preResolveNeighbors(quality: AudioQuality): void {
+    const candidates = [this.queue.peekNext(), this.queue.peekPrevious()];
+    const seen = new Set<string>();
+    for (const song of candidates) {
+      if (!song || song.stableId === this.currentSong?.stableId) continue;
+      const key = cacheKey(song, quality);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      this.preResolveSong(song, quality);
+    }
+  }
+
+  private preResolveSong(song: NormalizedSong, quality: AudioQuality): void {
+    const key = cacheKey(song, quality);
     const cached = this.preResolvedUrls.get(key);
     if (cached && cached.expiresAt > Date.now()) return;
-    void this.fallback.resolvePlayableUrl(next, quality)
+    void this.fallback.resolvePlayableUrl(song, quality)
       .then((result) => {
         this.preResolvedUrls.set(key, { result, expiresAt: Date.now() + preResolvedTtlMs });
       })
@@ -222,32 +242,29 @@ export class AudioEngine {
   // 任何 await（哪怕命中缓存只是一个微任务）都会断掉手势延续特权，导致后台切歌被拒。
   // 因此命中预解析直链缓存时走"同步换源 + 同步 play()"快路径；未命中再回退到异步 next()。
   private handleEnded(): void {
-    const quality = this.currentQuality;
-    const advanced = this.queue.next();
-    const nextSong = advanced.current;
-    if (nextSong) {
-      const key = cacheKey(nextSong, quality);
-      const cached = this.preResolvedUrls.get(key);
-      if (cached && cached.expiresAt > Date.now()) {
-        this.preResolvedUrls.delete(key);
-        this.queue = advanced;
-        this.currentSong = nextSong;
-        this.audio.src = cached.result.url;
-        const playPromise = this.audio.play();
-        this.setState("playing");
-        this.emitTrackChange();
-        Promise.resolve(playPromise)
-          .then(() => this.preResolveNext(quality))
-          .catch(() => {
-            // 快路径 play() 失败（罕见，但后台可能发生）→ 保持暂停，依赖 MediaSession play 恢复
-            this.setState("paused");
-          });
-        return;
-      }
-    }
+    if (this.playCachedAdvance("next")) return;
     // 无预解析缓存（长曲超过缓存 TTL、随机模式选中项与预解析项不一致、预解析失败等）：
     // 回退到异步路径，前台可正常切歌；后台此路径可能因缺少手势而暂停，依赖锁屏 play 键恢复
     void this.next();
+  }
+
+  private playCachedAdvance(direction: "next" | "previous"): boolean {
+    const quality = this.currentQuality;
+    const advanced = direction === "next" ? this.queue.next() : this.queue.previous();
+    const song = advanced.current;
+    if (!song || song.stableId === this.currentSong?.stableId) return false;
+    const cached = this.takeCachedUrl(song, quality);
+    if (!cached) return false;
+    this.queue = advanced;
+    this.currentSong = song;
+    this.audio.src = cached.url;
+    const playPromise = this.audio.play();
+    this.setState("playing");
+    this.emitTrackChange();
+    Promise.resolve(playPromise)
+      .then(() => this.preResolveNeighbors(quality))
+      .catch(() => this.setState("paused"));
+    return true;
   }
 
   private bindEvents(): void {

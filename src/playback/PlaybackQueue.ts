@@ -55,6 +55,13 @@ export class PlaybackQueue {
     if (this.mode === "shuffle") return this.items[randomIndex(this.items.length, this.cursor, random)] ?? null;
     return this.items[(this.cursor + 1) % this.items.length] ?? null;
   }
+
+  peekPrevious(random: () => number = Math.random): NormalizedSong | null {
+    if (!this.items.length) return null;
+    if (this.mode === "single") return this.current;
+    if (this.mode === "shuffle") return this.items[randomIndex(this.items.length, this.cursor, random)] ?? null;
+    return this.items[(this.cursor - 1 + this.items.length) % this.items.length] ?? null;
+  }
 }
 
 function clamp(index: number, length: number): number {

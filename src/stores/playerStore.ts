@@ -197,15 +197,23 @@ export const usePlayerStore = defineStore("player", () => {
       artist: song.artistText,
       album: song.album?.name ?? "",
     });
-    navigator.mediaSession.setActionHandler("play", () => void resume());
-    navigator.mediaSession.setActionHandler("pause", () => pause());
-    navigator.mediaSession.setActionHandler("previoustrack", () => void previous());
-    navigator.mediaSession.setActionHandler("nexttrack", () => void next());
-    navigator.mediaSession.setActionHandler("stop", () => pause());
-    navigator.mediaSession.setActionHandler("seekto", (details) => {
+    setMediaSessionHandler("play", () => void resume());
+    setMediaSessionHandler("pause", () => pause());
+    setMediaSessionHandler("previoustrack", () => void previous());
+    setMediaSessionHandler("nexttrack", () => void next());
+    setMediaSessionHandler("stop", () => pause());
+    setMediaSessionHandler("seekto", (details) => {
       if (typeof details.seekTime === "number") seek(details.seekTime * 1000);
     });
     syncMediaSessionPosition();
+  }
+
+  function setMediaSessionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler): void {
+    try {
+      navigator.mediaSession.setActionHandler(action, handler);
+    } catch {
+      // Safari/iOS 可能只支持部分 Media Session action；单个失败不能影响其它锁屏控制。
+    }
   }
 
   function syncMediaSessionPlaybackState(nextState: typeof state.value): void {

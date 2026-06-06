@@ -35,6 +35,7 @@ describe("PlaybackQueue", () => {
     const queue = new PlaybackQueue().replace([song("a"), song("b"), song("c")], 0);
 
     expect(queue.previous().current?.name).toBe("c");
+    expect(queue.peekPrevious()?.name).toBe("c");
   });
 
   it("picks a different track in shuffle mode", () => {

@@ -11,15 +11,19 @@
     </header>
 
     <section class="playlist-hero card card-pad">
-      <div class="ratio-cover" />
-      <div>
-        <p class="muted">{{ detailText }}</p>
-        <div class="hero-actions">
-          <button class="primary-btn" :disabled="!rows.length" @click="playAll">{{ zh.common.play }}</button>
-          <button class="secondary-btn" :disabled="!rows.length || downloading" @click="downloadAll">
-            <Download :size="15" />{{ downloadText }}
-          </button>
+      <div class="hero-summary">
+        <div class="ratio-cover" />
+        <div class="hero-meta">
+          <p class="muted">{{ detailText }}</p>
         </div>
+      </div>
+      <div class="hero-actions">
+        <button class="primary-btn hero-action" :aria-label="zh.common.play" :title="zh.common.play" :disabled="!rows.length" @click="playAll">
+          <Play :size="18" fill="currentColor" />
+        </button>
+        <button class="secondary-btn hero-action" :aria-label="downloadText" :title="downloadText" :disabled="!rows.length || downloading" @click="downloadAll">
+          <Download :size="18" />
+        </button>
       </div>
     </section>
 
@@ -37,7 +41,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ChevronLeft, Download } from "lucide-vue-next";
+import { ChevronLeft, Download, Play } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import TrackList from "@/components/Track/TrackList.vue";
 import { downloadSongsToServer } from "@/playback/downloadBatch";
@@ -153,9 +157,7 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 <style scoped>
 .playlist-hero {
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
 }
 
 .playlist-hero .ratio-cover {
@@ -163,34 +165,31 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.playlist-hero div:last-child,
-.hero-actions {
+.hero-summary {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(92px, 36%) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.hero-meta {
+  min-width: 0;
+  display: grid;
+  align-content: center;
 }
 
 .hero-actions {
-  grid-template-columns: 1fr;
-  align-items: stretch;
-  justify-items: start;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
-.hero-actions .primary-btn,
-.hero-actions .secondary-btn {
-  width: min(100%, 160px);
-  min-height: 34px;
-  padding-inline: 10px;
-  white-space: nowrap;
-}
-
-.hero-actions .primary-btn {
-  min-width: 64px;
-  font-size: 13px;
-}
-
-.hero-actions .secondary-btn {
-  justify-content: flex-start;
-  font-size: 12px;
+.hero-action {
+  width: 42px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 10px;
 }
 
 .empty {
@@ -199,14 +198,15 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 }
 
 @media (max-width: 380px) {
-  .playlist-hero {
+  .hero-summary {
     grid-template-columns: 96px minmax(0, 1fr);
     gap: 10px;
   }
 
-  .hero-actions .primary-btn,
-  .hero-actions .secondary-btn {
-    width: min(100%, 142px);
+  .hero-action {
+    width: 40px;
+    height: 38px;
+    min-height: 38px;
   }
 }
 </style>

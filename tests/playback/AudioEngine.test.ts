@@ -55,7 +55,7 @@ describe("AudioEngine", () => {
     engine.destroy();
   });
 
-  it("pre-resolves the next track and reuses it on advance without re-resolving", async () => {
+  it("pre-resolves neighboring tracks and reuses them on advance without re-resolving", async () => {
     const calls: string[] = [];
     const provider = baseProvider(async (req) => {
       calls.push(req.id);
@@ -65,7 +65,7 @@ describe("AudioEngine", () => {
 
     engine.replaceQueue([song("a"), song("b")], 0);
     await engine.playCurrent("flac");
-    // 当前曲播放后异步预解析下一首；等待微任务队列清空
+    // 当前曲播放后异步预解析相邻歌曲；等待微任务队列清空
     await flushPromises();
     expect(calls).toEqual(["a", "b"]);
 
@@ -73,6 +73,39 @@ describe("AudioEngine", () => {
     // 切到 b 时命中预解析缓存，不再重复解析 b；预解析的下一首回到 a
     await flushPromises();
     expect(calls).toEqual(["a", "b", "a"]);
+    engine.destroy();
+  });
+
+  it("uses cached neighbors for manual next and previous so lock-screen actions avoid async re-resolve", async () => {
+    const calls: string[] = [];
+    const provider = baseProvider(async (req) => {
+      calls.push(req.id);
+      return { url: `https://example.test/${req.id}.mp3`, direct: true, providerId: mockProviderId, source: "netease", quality: req.br ?? "flac" };
+    });
+    const audio = createAudioElement();
+    const playSpy = audio.play as unknown as ReturnType<typeof vi.fn>;
+    const engine = new AudioEngine([provider], undefined, audio);
+
+    engine.replaceQueue([song("a"), song("b"), song("c")], 1);
+    await engine.playCurrent("flac");
+    await flushPromises();
+    expect(calls).toEqual(["b", "c", "a"]);
+
+    const playsBeforePrevious = playSpy.mock.calls.length;
+    await engine.previous();
+    expect(audio.src).toContain("a.mp3");
+    expect(engine.getCurrentSong()?.providerSongId).toBe("a");
+    expect(playSpy.mock.calls.length).toBe(playsBeforePrevious + 1);
+    expect(calls.filter((id) => id === "a")).toHaveLength(1);
+
+    await flushPromises();
+    expect(calls).toEqual(["b", "c", "a", "b"]);
+    const playsBeforeNext = playSpy.mock.calls.length;
+    await engine.next();
+    expect(audio.src).toContain("b.mp3");
+    expect(engine.getCurrentSong()?.providerSongId).toBe("b");
+    expect(playSpy.mock.calls.length).toBe(playsBeforeNext + 1);
+    expect(calls.filter((id) => id === "b")).toHaveLength(2);
     engine.destroy();
   });
 
