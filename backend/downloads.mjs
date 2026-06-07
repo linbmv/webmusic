@@ -12,6 +12,25 @@ const allowedSources = new Set(["netease", "kuwo", "qqmusic", "kugou", "joox"]);
 const defaultMaxUserBytes = 2_000_000_000; // 2GB
 const maxUserDownloadBytes = positiveInt(process.env.MAX_USER_DOWNLOAD_BYTES, defaultMaxUserBytes);
 
+// 用户级下载锁：防止并发下载突破配额
+const userDownloadLocks = new Map();
+
+async function acquireDownloadLock(userId) {
+  const existingLock = userDownloadLocks.get(userId);
+  if (existingLock) {
+    await existingLock;
+  }
+  let releaseLock;
+  const lockPromise = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+  userDownloadLocks.set(userId, lockPromise);
+  return () => {
+    userDownloadLocks.delete(userId);
+    releaseLock();
+  };
+}
+
 const getDownloads = db.prepare(`
 SELECT user_downloads.id, user_downloads.song_payload, user_downloads.quality, user_downloads.created_at,
        audio_assets.id AS asset_id, audio_assets.file_path, audio_assets.size_bytes, audio_assets.mime_type
@@ -60,26 +79,33 @@ async function createDownload(req, res, userId) {
   const quality = normalizeQuality(body.quality);
   const audioUrl = stringValue(body.audioUrl);
   if (!audioUrl) throw httpError(400, "audioUrl is required");
-  const currentTotal = totalDownloadedBytes(userId);
-  const existing = findAssetForSong(userId, song, quality);
-  const existingDownloadId = existing ? findUserDownload.get(userId, String(existing.id))?.id : null;
-  const replacedBytes = existingDownloadId ? Number(existing.size_bytes ?? 0) : 0;
-  const asset = await ensureAsset({
-    userId,
-    song,
-    quality,
-    audioUrl,
-    existing,
-    limitBytes: maxUserDownloadBytes - currentTotal + replacedBytes,
-  });
-  if (!existingDownloadId && currentTotal + asset.sizeBytes > maxUserDownloadBytes) {
-    await removeAssetIfUnreferenced(asset.id);
-    throw httpError(507, "User download quota exceeded");
+
+  // 获取用户级锁，确保并发下载串行执行
+  const releaseLock = await acquireDownloadLock(userId);
+  try {
+    const currentTotal = totalDownloadedBytes(userId);
+    const existing = findAssetForSong(userId, song, quality);
+    const existingDownloadId = existing ? findUserDownload.get(userId, String(existing.id))?.id : null;
+    const replacedBytes = existingDownloadId ? Number(existing.size_bytes ?? 0) : 0;
+    const asset = await ensureAsset({
+      userId,
+      song,
+      quality,
+      audioUrl,
+      existing,
+      limitBytes: maxUserDownloadBytes - currentTotal + replacedBytes,
+    });
+    if (!existingDownloadId && currentTotal + asset.sizeBytes > maxUserDownloadBytes) {
+      await removeAssetIfUnreferenced(asset.id);
+      throw httpError(507, "User download quota exceeded");
+    }
+    insertDownload.run(randomUUID(), userId, asset.id, JSON.stringify(song), quality, nowMs());
+    const downloadId = existingDownloadId ?? findUserDownload.get(userId, asset.id)?.id;
+    sendJson(res, 201, { download: { id: String(downloadId), song, quality, sizeBytes: asset.sizeBytes, streamUrl: `/api/me/downloads/${downloadId}/stream` } });
+    return true;
+  } finally {
+    releaseLock();
   }
-  insertDownload.run(randomUUID(), userId, asset.id, JSON.stringify(song), quality, nowMs());
-  const downloadId = existingDownloadId ?? findUserDownload.get(userId, asset.id)?.id;
-  sendJson(res, 201, { download: { id: String(downloadId), song, quality, sizeBytes: asset.sizeBytes, streamUrl: `/api/me/downloads/${downloadId}/stream` } });
-  return true;
 }
 
 function streamDownload(res, userId, downloadId, req) {
@@ -92,6 +118,21 @@ function streamDownload(res, userId, downloadId, req) {
   const rangeHeader = String(req.headers["range"] ?? "");
   const range = rangeHeader.startsWith("bytes=") ? parseRangeHeader(rangeHeader, fileSize) : null;
   if (rangeHeader.startsWith("bytes=") && !range) return rangeNotSatisfiable(res, fileSize);
+
+  const stream = range
+    ? createReadStream(filePath, { start: range.start, end: range.end })
+    : createReadStream(filePath);
+
+  // 监听流错误，避免未处理异常
+  stream.on("error", (err) => {
+    if (!res.headersSent) {
+      res.writeHead(500, { "content-type": "text/plain" });
+      res.end("Internal server error");
+    } else {
+      res.destroy();
+    }
+  });
+
   if (range) {
     res.writeHead(206, {
       "content-type": String(row.mime_type ?? "application/octet-stream"),
@@ -100,7 +141,7 @@ function streamDownload(res, userId, downloadId, req) {
       "accept-ranges": "bytes",
       "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(fileNameFor(song, String(row.quality)))}`,
     });
-    createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+    stream.pipe(res);
   } else {
     res.writeHead(200, {
       "content-type": String(row.mime_type ?? "application/octet-stream"),
@@ -108,7 +149,7 @@ function streamDownload(res, userId, downloadId, req) {
       "accept-ranges": "bytes",
       "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(fileNameFor(song, String(row.quality)))}`,
     });
-    createReadStream(filePath).pipe(res);
+    stream.pipe(res);
   }
   return true;
 }
