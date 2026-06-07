@@ -14,7 +14,7 @@
     </header>
 
     <section class="album-stage">
-      <div class="vinyl" :class="{ spinning: player.isPlaying }">
+      <div class="vinyl">
         <div class="album-cover" :style="coverStyle" />
       </div>
     </section>
@@ -64,6 +64,7 @@ import { computed } from "vue";
 import { ChevronDown, ListMusic, MoreHorizontal, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import SyncedLyrics from "@/components/Player/SyncedLyrics.vue";
+import { formatTimeLabel } from "@/playback/timeLabel";
 import { getSourceName } from "@/providers/sourceMetadata";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
@@ -80,8 +81,8 @@ const coverStyle = computed(() => {
 });
 const currentSeconds = computed(() => Math.floor(player.currentTimeMs / 1000));
 const durationSeconds = computed(() => Math.max(1, Math.floor(player.durationMs / 1000)));
-const currentLabel = computed(() => formatTime(player.currentTimeMs));
-const durationLabel = computed(() => formatTime(player.durationMs));
+const currentLabel = computed(() => formatTimeLabel(player.currentTimeMs));
+const durationLabel = computed(() => formatTimeLabel(player.durationMs));
 const modeLabel = computed(() => {
   if (player.mode === "single") return zh.music.modeSingle;
   if (player.mode === "shuffle") return zh.music.modeShuffle;
@@ -103,13 +104,6 @@ function openActions(): void {
   if (player.currentSong) ui.openAddToPlaylist(player.currentSong);
 }
 
-function formatTime(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "00:00";
-  const total = Math.floor(ms / 1000);
-  const minutes = String(Math.floor(total / 60)).padStart(2, "0");
-  const seconds = String(total % 60).padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
 </script>
 
 <style scoped>
@@ -170,20 +164,12 @@ function formatTime(ms: number): string {
   background: radial-gradient(circle, #222 0 18%, #050506 19% 100%);
 }
 
-.vinyl.spinning {
-  animation: spin 16s linear infinite;
-}
-
 .album-cover {
   width: 58%;
   aspect-ratio: 1;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .progress-row {

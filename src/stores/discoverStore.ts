@@ -2,15 +2,15 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { zh } from "@/i18n/zh";
 import { getSourceTag } from "@/providers/sourceMetadata";
+import { hasFreshDiscover, hasFreshToplists, readDiscoverCache, writeDiscoverCache } from "@/stores/discoverCache";
 import { useProviderStore } from "@/stores/providerStore";
-import type { MusicSourceId, NormalizedPlaylist, NormalizedSong, ToplistGroup } from "@/types/music";
+import type { NormalizedPlaylist, NormalizedSong, ToplistGroup } from "@/types/music";
 import type { TrackRowItem } from "@/types/ui";
 
 const defaultSearchKeyword = zh.names.yinTian;
 
 export const useDiscoverStore = defineStore("discover", () => {
   const providerStore = useProviderStore();
-
   const playlists = ref<NormalizedPlaylist[]>([]);
   const discoverSongs = ref<NormalizedSong[]>([]);
   const toplists = ref<ToplistGroup[]>([]);
@@ -19,16 +19,25 @@ export const useDiscoverStore = defineStore("discover", () => {
   const activeProviderName = computed(() => providerStore.activeProvider.displayName);
 
   async function loadDiscover(): Promise<void> {
-    await runRequest(async () => {
-      playlists.value = await withProviderFallback(async (provider) => provider.getRecommendPlaylists ? (await provider.getRecommendPlaylists({ page: 1, pageSize: 10 })).items : []);
-      discoverSongs.value = await withProviderFallback(async (provider) => (await provider.search({ q: defaultSearchKeyword, type: "song", page: 1, pageSize: 12 })).items);
-    });
+    const providerId = providerStore.config.activeProviderId;
+    const cached = readDiscoverCache(providerId);
+    if (cached) applyDiscoverCache(cached);
+    if (cached && hasFreshDiscover(cached)) {
+      setTimeout(() => void refreshDiscover(false), 0);
+      return;
+    }
+    await refreshDiscover(!cached);
   }
 
   async function loadToplists(): Promise<void> {
-    await runRequest(async () => {
-      toplists.value = await withProviderFallback(async (provider) => provider.getToplists ? await provider.getToplists("netease") : []);
-    });
+    const providerId = providerStore.config.activeProviderId;
+    const cached = readDiscoverCache(providerId);
+    if (cached) applyToplistCache(cached);
+    if (cached && hasFreshToplists(cached)) {
+      setTimeout(() => void refreshToplists(false), 0);
+      return;
+    }
+    await refreshToplists(!cached);
   }
 
   function songRows(songs: NormalizedSong[]): TrackRowItem[] {
@@ -43,43 +52,48 @@ export const useDiscoverStore = defineStore("discover", () => {
     }));
   }
 
-  async function runRequest(task: () => Promise<void>): Promise<void> {
-    loading.value = true;
+  async function refreshDiscover(showLoading: boolean): Promise<void> {
+    await runRequest(showLoading, async () => {
+      const provider = providerStore.activeProvider;
+      const [nextPlaylists, nextSongs] = await Promise.all([
+        provider.getRecommendPlaylists ? provider.getRecommendPlaylists({ page: 1, pageSize: 10 }).then((result) => result.items) : [],
+        provider.search({ q: defaultSearchKeyword, type: "song", page: 1, pageSize: 12 }).then((result) => result.items),
+      ]);
+      playlists.value = nextPlaylists;
+      discoverSongs.value = nextSongs;
+      writeDiscoverCache({ providerId: providerStore.config.activeProviderId, playlists: nextPlaylists, discoverSongs: nextSongs, discoverUpdatedAt: Date.now() });
+    });
+  }
+
+  async function refreshToplists(showLoading: boolean): Promise<void> {
+    await runRequest(showLoading, async () => {
+      const provider = providerStore.activeProvider;
+      const nextToplists = provider.getToplists ? await provider.getToplists("netease") : [];
+      toplists.value = nextToplists;
+      writeDiscoverCache({ providerId: providerStore.config.activeProviderId, toplists: nextToplists, toplistsUpdatedAt: Date.now() });
+    });
+  }
+
+  async function runRequest(showLoading: boolean, task: () => Promise<void>): Promise<void> {
+    if (showLoading) loading.value = true;
     error.value = null;
     try {
       await task();
     } catch (requestError) {
       error.value = requestError instanceof Error ? requestError.message : "Provider request failed";
     } finally {
-      loading.value = false;
+      if (showLoading) loading.value = false;
     }
   }
 
-  async function withProviderFallback<T>(request: (provider: ReturnType<typeof providerStore.registry.getActive>) => Promise<T>): Promise<T> {
-    const providers = [providerStore.activeProvider, ...providerStore.registry.getFallbacks()];
-    const seen = new Set<string>();
-    let lastError: unknown;
-    for (const provider of providers) {
-      if (seen.has(provider.id)) continue;
-      seen.add(provider.id);
-      try {
-        return await request(provider);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Provider fallback chain failed");
+  function applyDiscoverCache(snapshot: { playlists: NormalizedPlaylist[]; discoverSongs: NormalizedSong[] }): void {
+    playlists.value = snapshot.playlists;
+    discoverSongs.value = snapshot.discoverSongs;
   }
 
-  return {
-    playlists,
-    discoverSongs,
-    toplists,
-    loading,
-    error,
-    activeProviderName,
-    loadDiscover,
-    loadToplists,
-    songRows,
-  };
+  function applyToplistCache(snapshot: { toplists: ToplistGroup[] }): void {
+    toplists.value = snapshot.toplists;
+  }
+
+  return { playlists, discoverSongs, toplists, loading, error, activeProviderName, loadDiscover, loadToplists, songRows };
 });

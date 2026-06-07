@@ -10,6 +10,9 @@ import { buildProxyUrl, matchesProxyPrefix } from "./backend/proxy.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const distDir = join(root, "dist");
+const HTML_CACHE_CONTROL = "no-cache";
+const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const STATIC_CACHE_CONTROL = "public, max-age=3600";
 const upstreams = {
   free: "https://ios.25pan.com/api/v1/freemusic",
   karpov: "https://gateway.karpov.cn",
@@ -80,8 +83,22 @@ function serveStatic(pathname, res) {
   const requested = normalized && normalized !== "." ? join(distDir, normalized) : join(distDir, "index.html");
   const filePath = existsSync(requested) ? requested : join(distDir, "index.html");
   if (!filePath.startsWith(distDir)) throw httpError(403, "Forbidden");
-  res.writeHead(200, { "content-type": contentType(filePath) });
+  res.writeHead(200, staticHeaders(filePath, normalized));
   createReadStream(filePath).pipe(res);
+}
+
+function staticHeaders(filePath, normalizedPath) {
+  return {
+    "content-type": contentType(filePath),
+    "cache-control": cacheControl(filePath, normalizedPath),
+  };
+}
+
+export function cacheControl(filePath, normalizedPath) {
+  const browserPath = normalizedPath.replace(/\\/g, "/");
+  if (filePath.endsWith("index.html")) return HTML_CACHE_CONTROL;
+  if (browserPath.startsWith("assets/")) return ASSET_CACHE_CONTROL;
+  return STATIC_CACHE_CONTROL;
 }
 
 function filterHeaders(headers) {

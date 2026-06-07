@@ -1,5 +1,5 @@
 <template>
-  <section class="player-bar" role="button" tabindex="0" @click="onBarClick" @dblclick="onBarDoubleClick" @keydown.enter="open">
+  <section class="player-bar" role="button" tabindex="0" @click="onBarClick" @dblclick="onBarDoubleClick" @keydown.enter="ui.openPlayer">
     <div class="bar-cover" :style="coverStyle" />
     <div class="bar-copy">
       <strong class="ellipsis">{{ currentTitle }}</strong>
@@ -52,6 +52,7 @@
 import { computed } from "vue";
 import { ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
+import { formatTimeLabel } from "@/playback/timeLabel";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -62,7 +63,7 @@ const currentSubtitle = computed(() => player.currentSong?.artistText ?? `${zh.n
 const progressPercent = computed(() => `${Math.round(player.progress * 100)}%`);
 const currentSeconds = computed(() => Math.floor(player.currentTimeMs / 1000));
 const durationSeconds = computed(() => Math.max(1, Math.floor(player.durationMs / 1000)));
-const timeLabel = computed(() => `${formatTime(player.currentTimeMs)} / ${formatTime(player.durationMs)}`);
+const timeLabel = computed(() => `${formatTimeLabel(player.currentTimeMs)} / ${formatTimeLabel(player.durationMs)}`);
 const progressStyle = computed(() => ({
   background: `linear-gradient(to right, rgba(235, 235, 245, 0.72) ${progressPercent.value}, rgba(255, 255, 255, 0.16) ${progressPercent.value})`,
 }));
@@ -76,30 +77,18 @@ const coverStyle = computed(() => {
   return cover ? { backgroundImage: `url(${cover})`, backgroundSize: "cover", backgroundPosition: "center" } : {};
 });
 
-function open(): void {
+function onBarClick(): void {
+  if (isDesktopPointer()) return;
   ui.openPlayer();
 }
 
-function onBarClick(): void {
-  if (isDesktopPointer()) return;
-  open();
-}
-
 function onBarDoubleClick(): void {
-  if (isDesktopPointer()) open();
+  if (isDesktopPointer()) ui.openPlayer();
 }
 
 function onSeek(event: Event): void {
   const value = Number((event.target as HTMLInputElement).value);
   player.seek(value * 1000);
-}
-
-function formatTime(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "00:00";
-  const total = Math.floor(ms / 1000);
-  const minutes = String(Math.floor(total / 60)).padStart(2, "0");
-  const seconds = String(total % 60).padStart(2, "0");
-  return `${minutes}:${seconds}`;
 }
 
 function isDesktopPointer(): boolean {
@@ -120,10 +109,8 @@ function isDesktopPointer(): boolean {
   gap: 8px;
   padding: 7px 10px;
   border-radius: 14px;
-  background: var(--glass-strong);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--bg-elevated);
   border: 0.5px solid var(--bg-border);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32);
 }
 
 .bar-cover {
@@ -146,10 +133,7 @@ function isDesktopPointer(): boolean {
   color: var(--text-muted);
 }
 
-.bar-progress {
-  display: none;
-}
-
+.bar-progress,
 .bar-time {
   display: none;
 }
@@ -296,21 +280,19 @@ function isDesktopPointer(): boolean {
   }
 }
 
-.bar-progress::-webkit-slider-thumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  appearance: none;
-  background: #fff;
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
-}
-
+.bar-progress::-webkit-slider-thumb,
 .bar-progress::-moz-range-thumb {
   width: 12px;
   height: 12px;
-  border: 0;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+}
+
+.bar-progress::-webkit-slider-thumb {
+  appearance: none;
+}
+
+.bar-progress::-moz-range-thumb {
+  border: 0;
 }
 </style>

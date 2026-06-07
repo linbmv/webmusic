@@ -1,27 +1,12 @@
 <template>
   <div class="page">
-    <section class="music-carousel" aria-label="featured playlists">
-      <button class="carousel-card is-prev" @click="playFirstRecent">
-        <span class="carousel-cover alt-a" />
-        <span class="carousel-copy">
+    <section class="daily-entry" aria-label="featured playlists">
+      <button class="daily-card" @click="playFirstRecent">
+        <span class="daily-copy">
           <strong>{{ zh.music.daily }}</strong>
-          <small>{{ zh.names.yinTian }} · {{ zh.names.moWenWei }}</small>
-        </span>
-      </button>
-      <button class="carousel-card is-active" @click="playFirstRecent">
-        <span class="carousel-cover main" />
-        <span class="carousel-copy">
-          <strong>{{ zh.music.tonight }}</strong>
           <small>{{ music.activeProviderName }} · {{ zh.music.playDaily }}</small>
         </span>
-        <span class="carousel-play"><Play :size="16" fill="currentColor" /></span>
-      </button>
-      <button class="carousel-card is-next" @click="playFirstRecent">
-        <span class="carousel-cover alt-b" />
-        <span class="carousel-copy">
-          <strong>{{ zh.names.newSongs }}</strong>
-          <small>{{ zh.music.recommendPlaylists }}</small>
-        </span>
+        <span class="daily-play"><Play :size="16" fill="currentColor" /></span>
       </button>
     </section>
 
@@ -111,94 +96,43 @@ onMounted(() => void music.loadDiscover());
 </script>
 
 <style scoped>
-.music-carousel {
-  position: relative;
-  height: 218px;
+.daily-entry {
   margin-bottom: 10px;
+}
+
+.daily-card {
+  width: 100%;
+  min-height: 76px;
+  padding: 14px;
+  border-radius: 12px;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 6px;
-  overflow: hidden;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.carousel-card {
-  position: absolute;
-  width: 320px;
-  max-width: 78vw;
-  height: 190px;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
-  background: #222;
-  transition: transform 300ms ease, opacity 300ms ease;
-}
-
-.carousel-card.is-active {
-  z-index: 3;
-  transform: translateX(0) scale(1);
-}
-
-.carousel-card.is-prev {
-  z-index: 1;
-  opacity: 0.62;
-  transform: translateX(-72%) scale(0.84);
-}
-
-.carousel-card.is-next {
-  z-index: 1;
-  opacity: 0.62;
-  transform: translateX(72%) scale(0.84);
-}
-
-.carousel-cover {
-  position: absolute;
-  inset: 0;
-}
-
-.carousel-cover.main {
-  background: #171920;
-}
-
-.carousel-cover.alt-a {
-  background: #12141a;
-}
-
-.carousel-cover.alt-b {
-  background: #1d2028;
-}
-
-.carousel-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 30%, rgba(0, 0, 0, 0.78));
-}
-
-.carousel-copy {
-  position: absolute;
-  z-index: 2;
-  left: 16px;
-  right: 54px;
-  bottom: 14px;
+.daily-copy {
+  min-width: 0;
   display: grid;
   gap: 3px;
   text-align: left;
 }
 
-.carousel-copy strong {
+.daily-copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 16px;
 }
 
-.carousel-copy small {
-  color: rgba(255, 255, 255, 0.86);
+.daily-copy small {
+  color: var(--text-muted);
   font-size: 12px;
 }
 
-.carousel-play,
+.daily-play,
 .card-play {
   display: inline-flex;
   align-items: center;
@@ -207,11 +141,8 @@ onMounted(() => void music.loadDiscover());
   background: rgba(255, 255, 255, 0.25);
 }
 
-.carousel-play {
-  position: absolute;
-  z-index: 2;
-  right: 14px;
-  bottom: 14px;
+.daily-play {
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -301,15 +232,6 @@ onMounted(() => void music.loadDiscover());
 }
 
 @media (max-width: 768px) {
-  .music-carousel {
-    height: 188px;
-  }
-
-  .carousel-card {
-    width: 250px;
-    height: 150px;
-  }
-
   .pl-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 10px;

@@ -1,30 +1,26 @@
 import type { MusicProvider } from "@/providers/MusicProvider";
+import { AudioPreloadCache, createBrowserAudioElement, disposeAudio, prepareAudioElement, type AudioElementFactory } from "@/playback/audioPreloadCache";
 import { PlaybackFallbackService } from "@/playback/fallback";
 import { PlaybackQueue } from "@/playback/PlaybackQueue";
 import type { AudioQuality, AudioUrlResult, NormalizedSong, PlaybackMode } from "@/types/music";
 
 type EngineState = "idle" | "loading" | "playing" | "paused" | "error";
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: "release", listener: () => void) => void };
-type CachedAudioUrl = { result: AudioUrlResult; expiresAt: number };
-
-// 预解析直链缓存有效期：覆盖一首歌的播放时长，确保锁屏前解析好的下一首直链在切歌时仍有效
-const preResolvedTtlMs = 15 * 60 * 1000;
-// 预解析缓存容量上限：避免无限增长，12 条足够覆盖相邻歌曲和不同音质
-const maxPreResolvedUrls = 12;
 
 export class AudioEngine {
-  private readonly audio: HTMLAudioElement;
+  private audio: HTMLAudioElement;
   private queue = new PlaybackQueue();
   private state: EngineState = "idle";
   private currentQuality: AudioQuality = "flac";
   private currentSong: NormalizedSong | null = null;
+  private currentMode: PlaybackMode = "list";
   private wakeLock: WakeLockSentinelLike | null = null;
-  private readonly preResolvedUrls = new Map<string, CachedAudioUrl>();
+  private readonly preloads: AudioPreloadCache;
   private operationId = 0;
+
   private readonly handleVisibilityChange = (): void => {
     if (document.visibilityState === "visible" && this.state === "playing") void this.requestWakeLock();
   };
-
   private readonly onEnded = (): void => this.handleEnded();
   private readonly onError = (): void => this.setState("error");
   private readonly onPlay = (): void => { void this.requestWakeLock(); this.setState("playing"); };
@@ -41,28 +37,20 @@ export class AudioEngine {
     private readonly providers: MusicProvider[],
     private readonly fallback = new PlaybackFallbackService(providers),
     audio?: HTMLAudioElement,
+    private readonly createAudio: AudioElementFactory = createBrowserAudioElement,
   ) {
-    this.audio = audio ?? new Audio();
-    this.audio.preload = "auto";
-    this.audio.setAttribute("playsinline", "true");
+    this.audio = audio ?? this.createAudio();
+    this.preloads = new AudioPreloadCache(this.createAudio);
+    prepareAudioElement(this.audio);
     this.bindEvents();
   }
 
-  getState(): EngineState {
-    return this.state;
-  }
-
-  getCurrentSong(): NormalizedSong | null {
-    return this.currentSong;
-  }
-
-  getCurrentTime(): number {
-    return this.audio.currentTime * 1000;
-  }
-
-  getDuration(): number {
-    return Number.isFinite(this.audio.duration) ? this.audio.duration * 1000 : 0;
-  }
+  getState(): EngineState { return this.state; }
+  getCurrentSong(): NormalizedSong | null { return this.currentSong; }
+  getCurrentTime(): number { return this.audio.currentTime * 1000; }
+  getDuration(): number { return Number.isFinite(this.audio.duration) ? this.audio.duration * 1000 : 0; }
+  getQueueItems(): NormalizedSong[] { return this.queue.tracks; }
+  getQueueIndex(): number { return this.queue.index; }
 
   onTime(listener: (timeMs: number, durationMs: number) => void): () => void {
     this.timeListeners.add(listener);
@@ -80,16 +68,10 @@ export class AudioEngine {
   }
 
   destroy(): void {
-    this.audio.removeEventListener("ended", this.onEnded);
-    this.audio.removeEventListener("error", this.onError);
-    this.audio.removeEventListener("play", this.onPlay);
-    this.audio.removeEventListener("pause", this.onPause);
-    this.audio.removeEventListener("timeupdate", this.onTimeUpdate);
-    this.audio.removeEventListener("loadedmetadata", this.onLoadedMetadata);
-    this.audio.removeEventListener("durationchange", this.onDurationChange);
+    this.unbindAudioEvents(this.audio);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-    this.audio.pause();
-    this.audio.src = "";
+    disposeAudio(this.audio);
+    this.preloads.clear();
     void this.releaseWakeLock();
     this.timeListeners.clear();
     this.stateListeners.clear();
@@ -97,9 +79,8 @@ export class AudioEngine {
   }
 
   setMode(mode: PlaybackMode): void {
+    this.currentMode = mode;
     this.queue = this.queue.setMode(mode);
-    // 单曲循环用原生 audio.loop：后台/锁屏下由媒体元素自动无缝续播，
-    // 不触发 ended，也就不依赖"ended 内同步 play()"的手势延续特权
     this.audio.loop = mode === "single";
   }
 
@@ -123,21 +104,7 @@ export class AudioEngine {
       if (op !== this.operationId) return;
       this.audio.src = resolved.url;
       await this.requestWakeLock();
-      try {
-        await this.audio.play();
-      } catch {
-        // 锁屏/后台自动切歌时，浏览器可能因缺少用户手势拒绝 play()；
-        // 保持暂停态，等待 MediaSession 的 play 按钮（用户手势）恢复，而不是进入错误态。
-        if (op !== this.operationId) return;
-        this.currentSong = song;
-        this.setState("paused");
-        this.emitTrackChange();
-        return;
-      }
-      if (op !== this.operationId) return;
-      this.currentSong = song;
-      this.setState("playing");
-      this.emitTrackChange();
+      if (!await this.tryPlayCurrentAudio(op, song)) return;
       this.preResolveNeighbors(quality);
     } catch {
       if (op !== this.operationId) return;
@@ -182,14 +149,6 @@ export class AudioEngine {
     await this.playCurrent();
   }
 
-  getQueueItems(): NormalizedSong[] {
-    return this.queue.tracks;
-  }
-
-  getQueueIndex(): number {
-    return this.queue.index;
-  }
-
   seek(timeMs: number): void {
     this.audio.currentTime = Math.max(0, timeMs / 1000);
     this.emitTime();
@@ -201,15 +160,30 @@ export class AudioEngine {
     await this.playCurrent(quality);
   }
 
+  private async tryPlayCurrentAudio(op: number, song: NormalizedSong): Promise<boolean> {
+    try {
+      await this.audio.play();
+    } catch {
+      if (op !== this.operationId) return false;
+      this.currentSong = song;
+      this.setState("paused");
+      this.emitTrackChange();
+      return false;
+    }
+    if (op !== this.operationId) return false;
+    this.currentSong = song;
+    this.setState("playing");
+    this.emitTrackChange();
+    return true;
+  }
+
   private setState(state: EngineState): void {
     this.state = state;
     this.stateListeners.forEach((listener) => listener(state));
   }
 
   private emitTime(): void {
-    const timeMs = this.getCurrentTime();
-    const durationMs = this.getDuration();
-    this.timeListeners.forEach((listener) => listener(timeMs, durationMs));
+    this.timeListeners.forEach((listener) => listener(this.getCurrentTime(), this.getDuration()));
   }
 
   private emitTrackChange(): void {
@@ -218,21 +192,9 @@ export class AudioEngine {
   }
 
   private async resolvePlayableUrl(song: NormalizedSong, quality: AudioQuality): Promise<AudioUrlResult> {
-    const cached = this.takeCachedUrl(song, quality);
-    if (cached) return cached;
+    const cached = this.preloads.take(song, quality);
+    if (cached) return cached.result;
     return this.fallback.resolvePlayableUrl(song, quality);
-  }
-
-  private takeCachedUrl(song: NormalizedSong, quality: AudioQuality): AudioUrlResult | null {
-    const key = cacheKey(song, quality);
-    const cached = this.preResolvedUrls.get(key);
-    if (!cached) return null;
-    if (cached.expiresAt <= Date.now()) {
-      this.preResolvedUrls.delete(key);
-      return null;
-    }
-    this.preResolvedUrls.delete(key);
-    return cached.result;
   }
 
   private preResolveNeighbors(quality: AudioQuality): void {
@@ -240,48 +202,17 @@ export class AudioEngine {
     const seen = new Set<string>();
     for (const song of candidates) {
       if (!song || song.stableId === this.currentSong?.stableId) continue;
-      const key = cacheKey(song, quality);
-      if (seen.has(key)) continue;
+      const key = `${song.stableId}:${quality}`;
+      if (seen.has(key) || this.preloads.has(song, quality)) continue;
       seen.add(key);
-      this.preResolveSong(song, quality);
+      void this.fallback.resolvePlayableUrl(song, quality)
+        .then((result) => this.preloads.store(song, quality, result))
+        .catch(() => undefined);
     }
   }
 
-  private preResolveSong(song: NormalizedSong, quality: AudioQuality): void {
-    const key = cacheKey(song, quality);
-    const cached = this.preResolvedUrls.get(key);
-    if (cached && cached.expiresAt > Date.now()) return;
-
-    // 容量控制：超过上限时删除最旧的缓存项
-    if (this.preResolvedUrls.size >= maxPreResolvedUrls) {
-      let oldestKey: string | null = null;
-      let oldestExpiry = Infinity;
-      for (const [k, v] of this.preResolvedUrls.entries()) {
-        if (v.expiresAt < oldestExpiry) {
-          oldestExpiry = v.expiresAt;
-          oldestKey = k;
-        }
-      }
-      if (oldestKey) this.preResolvedUrls.delete(oldestKey);
-    }
-
-    void this.fallback.resolvePlayableUrl(song, quality)
-      .then((result) => {
-        this.preResolvedUrls.set(key, { result, expiresAt: Date.now() + preResolvedTtlMs });
-      })
-      .catch(() => {
-        this.preResolvedUrls.delete(key);
-      });
-  }
-
-  // 自然播放结束时的切歌。后台/锁屏下能否自动切下一首，取决于 play() 是否在 ended 事件的
-  // 同一同步调用栈内发起：浏览器（尤其 iOS Safari）只把这种 play() 视为正在进行播放的延续而放行，
-  // 任何 await（哪怕命中缓存只是一个微任务）都会断掉手势延续特权，导致后台切歌被拒。
-  // 因此命中预解析直链缓存时走"同步换源 + 同步 play()"快路径；未命中再回退到异步 next()。
   private handleEnded(): void {
     if (this.playCachedAdvance("next")) return;
-    // 无预解析缓存（长曲超过缓存 TTL、随机模式选中项与预解析项不一致、预解析失败等）：
-    // 回退到异步路径，前台可正常切歌；后台此路径可能因缺少手势而暂停，依赖锁屏 play 键恢复
     void this.next();
   }
 
@@ -290,11 +221,12 @@ export class AudioEngine {
     const advanced = direction === "next" ? this.queue.next() : this.queue.previous();
     const song = advanced.current;
     if (!song || song.stableId === this.currentSong?.stableId) return false;
-    const cached = this.takeCachedUrl(song, quality);
+    const cached = this.preloads.take(song, quality);
     if (!cached) return false;
     this.queue = advanced;
     this.currentSong = song;
-    this.audio.src = cached.url;
+    if (cached.audio) this.replaceAudioElement(cached.audio);
+    else this.audio.src = cached.result.url;
     const playPromise = this.audio.play();
     this.setState("playing");
     this.emitTrackChange();
@@ -304,15 +236,39 @@ export class AudioEngine {
     return true;
   }
 
+  private replaceAudioElement(nextAudio: HTMLAudioElement): void {
+    const previousAudio = this.audio;
+    this.unbindAudioEvents(previousAudio);
+    disposeAudio(previousAudio);
+    this.audio = nextAudio;
+    prepareAudioElement(this.audio);
+    this.audio.loop = this.currentMode === "single";
+    this.bindAudioEvents(this.audio);
+  }
+
   private bindEvents(): void {
-    this.audio.addEventListener("ended", this.onEnded);
-    this.audio.addEventListener("error", this.onError);
-    this.audio.addEventListener("play", this.onPlay);
-    this.audio.addEventListener("pause", this.onPause);
-    this.audio.addEventListener("timeupdate", this.onTimeUpdate);
-    this.audio.addEventListener("loadedmetadata", this.onLoadedMetadata);
-    this.audio.addEventListener("durationchange", this.onDurationChange);
+    this.bindAudioEvents(this.audio);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private bindAudioEvents(audio: HTMLAudioElement): void {
+    audio.addEventListener("ended", this.onEnded);
+    audio.addEventListener("error", this.onError);
+    audio.addEventListener("play", this.onPlay);
+    audio.addEventListener("pause", this.onPause);
+    audio.addEventListener("timeupdate", this.onTimeUpdate);
+    audio.addEventListener("loadedmetadata", this.onLoadedMetadata);
+    audio.addEventListener("durationchange", this.onDurationChange);
+  }
+
+  private unbindAudioEvents(audio: HTMLAudioElement): void {
+    audio.removeEventListener("ended", this.onEnded);
+    audio.removeEventListener("error", this.onError);
+    audio.removeEventListener("play", this.onPlay);
+    audio.removeEventListener("pause", this.onPause);
+    audio.removeEventListener("timeupdate", this.onTimeUpdate);
+    audio.removeEventListener("loadedmetadata", this.onLoadedMetadata);
+    audio.removeEventListener("durationchange", this.onDurationChange);
   }
 
   private async requestWakeLock(): Promise<void> {
@@ -336,8 +292,4 @@ export class AudioEngine {
       // Wake Lock release can fail after the browser has already revoked it.
     }
   }
-}
-
-function cacheKey(song: NormalizedSong, quality: AudioQuality): string {
-  return `${song.stableId}:${quality}`;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AudioEngine } from "@/playback/AudioEngine";
 import type { MusicProvider } from "@/providers/MusicProvider";
 import type { AudioQuality, AudioUrlResult, NormalizedSong, ProviderId, SongUrlRequest } from "@/types/music";
@@ -30,6 +30,16 @@ const baseProvider = (getSongUrl: (req: SongUrlRequest) => Promise<AudioUrlResul
 });
 
 describe("AudioEngine", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("starts each new track from flac after a previous track downgraded", async () => {
     const calls: Array<{ id: string; quality: AudioQuality }> = [];
     const provider = baseProvider(async (req) => {
@@ -84,7 +94,12 @@ describe("AudioEngine", () => {
     });
     const audio = createAudioElement();
     const playSpy = audio.play as unknown as ReturnType<typeof vi.fn>;
-    const engine = new AudioEngine([provider], undefined, audio);
+    const createdAudios: HTMLAudioElement[] = [];
+    const engine = new AudioEngine([provider], undefined, audio, () => {
+      const nextAudio = createAudioElement();
+      createdAudios.push(nextAudio);
+      return nextAudio;
+    });
 
     engine.replaceQueue([song("a"), song("b"), song("c")], 1);
     await engine.playCurrent("flac");
@@ -93,18 +108,19 @@ describe("AudioEngine", () => {
 
     const playsBeforePrevious = playSpy.mock.calls.length;
     await engine.previous();
-    expect(audio.src).toContain("a.mp3");
+    expect(createdAudios[1].src).toContain("a.mp3");
     expect(engine.getCurrentSong()?.providerSongId).toBe("a");
-    expect(playSpy.mock.calls.length).toBe(playsBeforePrevious + 1);
+    expect((createdAudios[1].play as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect(playSpy.mock.calls.length).toBe(playsBeforePrevious);
     expect(calls.filter((id) => id === "a")).toHaveLength(1);
 
     await flushPromises();
     expect(calls).toEqual(["b", "c", "a", "b"]);
     const playsBeforeNext = playSpy.mock.calls.length;
     await engine.next();
-    expect(audio.src).toContain("b.mp3");
+    expect(createdAudios[2].src).toContain("b.mp3");
     expect(engine.getCurrentSong()?.providerSongId).toBe("b");
-    expect(playSpy.mock.calls.length).toBe(playsBeforeNext + 1);
+    expect(playSpy.mock.calls.length).toBe(playsBeforeNext);
     expect(calls.filter((id) => id === "b")).toHaveLength(2);
     engine.destroy();
   });
@@ -117,7 +133,12 @@ describe("AudioEngine", () => {
     });
     const audio = createAudioElement();
     const playSpy = audio.play as unknown as ReturnType<typeof vi.fn>;
-    const engine = new AudioEngine([provider], undefined, audio);
+    const createdAudios: HTMLAudioElement[] = [];
+    const engine = new AudioEngine([provider], undefined, audio, () => {
+      const nextAudio = createAudioElement();
+      createdAudios.push(nextAudio);
+      return nextAudio;
+    });
 
     engine.replaceQueue([song("a"), song("b")], 0);
     await engine.playCurrent("flac");
@@ -129,9 +150,10 @@ describe("AudioEngine", () => {
     audio.dispatchEvent(new Event("ended"));
 
     // 同步切到 b（命中缓存），src 已更新、play() 已同步调用、且未重复解析 b
-    expect(audio.src).toContain("b.mp3");
+    expect(createdAudios[0].src).toContain("b.mp3");
     expect(engine.getCurrentSong()?.providerSongId).toBe("b");
-    expect(playSpy.mock.calls.length).toBe(playsBeforeEnded + 1);
+    expect((createdAudios[0].play as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect(playSpy.mock.calls.length).toBe(playsBeforeEnded);
     expect(calls).toEqual(["a", "b"]);
 
     await flushPromises(); // play() 成功后异步预解析再下一首（回到 a）

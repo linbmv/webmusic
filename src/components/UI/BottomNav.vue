@@ -34,8 +34,7 @@ const items = [
   padding: 4px 6px var(--safe-bottom);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  background: var(--glass-strong);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--bg-elevated);
   border-top: 0.5px solid var(--bg-border);
   transition: transform 260ms cubic-bezier(0.32, 0.94, 0.6, 1);
 }

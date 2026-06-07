@@ -1,14 +1,24 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMusicStore } from "@/stores/musicStore";
 import { useProviderStore } from "@/stores/providerStore";
 import { defaultProviderConfig, providerStorageKey } from "@/config/providerConfig";
+import type { NormalizedSong } from "@/types/music";
+
+const discoverStorageKey = "music:discover:v1";
 
 describe("musicStore", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     localStorage.removeItem(providerStorageKey);
+    localStorage.removeItem(discoverStorageKey);
     setActivePinia(createPinia());
     useProviderStore().switchProvider("mock");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("loads discover data from the active provider", async () => {
@@ -30,15 +40,34 @@ describe("musicStore", () => {
     expect(store.songRows(store.playlistSongs).length).toBeGreaterThan(0);
   });
 
-  it("falls back when the active provider cannot handle a request", async () => {
+  it("uses only the active provider for discover", async () => {
     const providerStore = useProviderStore();
     providerStore.switchProvider("custom");
+    await nextTick();
     const store = useMusicStore();
 
     await store.loadDiscover();
 
-    expect(store.error).toBeNull();
-    expect(store.discoverSongs.length).toBeGreaterThan(0);
+    expect(store.discoverSongs.some((item) => item.provider.providerId === "mock")).toBe(false);
+  });
+
+  it("hydrates discover from cache before refreshing", async () => {
+    vi.useFakeTimers();
+    const cachedSong = song("cached");
+    localStorage.setItem(discoverStorageKey, JSON.stringify({
+      providerId: "mock",
+      playlists: [],
+      discoverSongs: [cachedSong],
+      toplists: [],
+      discoverUpdatedAt: Date.now(),
+      toplistsUpdatedAt: 0,
+    }));
+    const store = useMusicStore();
+
+    const request = store.loadDiscover();
+
+    expect(store.discoverSongs[0].stableId).toBe(cachedSong.stableId);
+    await request;
   });
 
   it("keeps non-song searches in typed results", async () => {
@@ -127,3 +156,15 @@ describe("musicStore", () => {
     expect(providerStore.config.fallbackProviderIds).toEqual(["freeMusic", "gdStudio"]);
   });
 });
+
+function song(id: string): NormalizedSong {
+  return {
+    stableId: `mock:netease:song:${id}`,
+    providerSongId: id,
+    provider: { providerId: "mock", source: "netease" },
+    name: id,
+    artists: ["Artist"],
+    artistText: "Artist",
+    raw: {},
+  };
+}

@@ -4,57 +4,43 @@ import { AudioEngine } from "@/playback/AudioEngine";
 import { DownloadService, type DownloadResult } from "@/playback/download";
 import { LyricSync } from "@/lyrics/parser";
 import { PlaybackQueue } from "@/playback/PlaybackQueue";
+import { activeLineIndexOf, lyricWindow } from "@/playback/lyricWindow";
+import { syncMediaSessionMetadata, syncMediaSessionPlaybackState, syncMediaSessionPosition } from "@/playback/mediaSession";
+import { createProgressSnapshotSaver, loadPlayerSnapshot, savePlayerSnapshot, type PlayerSnapshot } from "@/playback/playerPersistence";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useProviderStore } from "@/stores/providerStore";
 import type { AudioQuality, LyricLine, NormalizedSong, ParsedLyric, PlaybackMode } from "@/types/music";
 
+type PlayerState = "idle" | "loading" | "playing" | "paused" | "error";
+
 export const usePlayerStore = defineStore("player", () => {
+  const snapshot = loadPlayerSnapshot();
   const providerStore = useProviderStore();
   const libraryStore = useLibraryStore();
   const accountStore = useAccountStore();
   const engine = shallowRef(createEngine());
   const queue = ref(new PlaybackQueue());
   const currentSong = ref<NormalizedSong | null>(null);
-  const state = ref<"idle" | "loading" | "playing" | "paused" | "error">("idle");
-  const quality = ref<AudioQuality>("flac");
-  const mode = ref<PlaybackMode>("list");
+  const state = ref<PlayerState>("idle");
+  const quality = ref<AudioQuality>(snapshot?.quality ?? "flac");
+  const mode = ref<PlaybackMode>(snapshot?.mode ?? "list");
   const lyric = ref<ParsedLyric | null>(null);
   const currentTimeMs = ref(0);
   const durationMs = ref(0);
   const isPlaying = computed(() => state.value === "playing");
   const lyricSync = computed(() => (lyric.value ? new LyricSync(lyric.value.lines) : null));
-  const activeLineIndex = computed(() => {
-    if (!lyric.value?.lines.length) return -1;
-    return lyric.value.lines.findIndex((line) => line === lyricSync.value?.getActiveLine(currentTimeMs.value));
-  });
-  const activeLyricLines = computed<{ previous: LyricLine | null; current: LyricLine | null; next: LyricLine | null }>(() => {
-    const lines = lyric.value?.lines ?? [];
-    const index = activeLineIndex.value;
-    if (index < 0) return { previous: null, current: lines[0] ?? null, next: lines[1] ?? null };
-    return { previous: lines[index - 1] ?? null, current: lines[index] ?? null, next: lines[index + 1] ?? null };
-  });
+  const activeLineIndex = computed(() => activeLineIndexOf(lyric.value?.lines ?? [], currentTimeMs.value));
+  const activeLyricLines = computed(() => lyricWindow(lyric.value?.lines ?? [], activeLineIndex.value));
   const progress = computed(() => (durationMs.value > 0 ? Math.min(1, currentTimeMs.value / durationMs.value) : 0));
   const queueItems = computed(() => queue.value.tracks);
   const queueIndex = computed(() => queue.value.index);
+  const saveProgressSnapshot = createProgressSnapshotSaver();
 
   bindEngine(engine.value);
+  engine.value.setMode(mode.value);
 
-  watch(
-    () => providerStore.config,
-    () => {
-      const tracks = queue.value.tracks;
-      const cursor = queue.value.index;
-      const wasPlaying = state.value === "playing";
-      engine.value.destroy();
-      engine.value = createEngine();
-      bindEngine(engine.value);
-      engine.value.setMode(mode.value);
-      if (tracks.length) engine.value.replaceQueue(tracks, cursor);
-      if (wasPlaying && tracks.length) void replayRestoredQueue();
-    },
-    { deep: true },
-  );
+  watch(() => providerStore.config, handleProviderConfigChange, { deep: true });
 
   function createEngine(): AudioEngine {
     return new AudioEngine([providerStore.activeProvider, ...providerStore.registry.getFallbacks()]);
@@ -64,7 +50,8 @@ export const usePlayerStore = defineStore("player", () => {
     target.onTime((timeMs, totalMs) => {
       currentTimeMs.value = timeMs;
       if (totalMs > 0) durationMs.value = totalMs;
-      syncMediaSessionPosition();
+      syncMediaSessionPosition(currentTimeMs.value, durationMs.value);
+      saveProgressSnapshot(playerSnapshot());
     });
     target.onStateChange((next) => {
       state.value = next;
@@ -75,9 +62,22 @@ export const usePlayerStore = defineStore("player", () => {
       queue.value = queue.value.jumpTo(index);
       currentTimeMs.value = 0;
       durationMs.value = song.durationMs ?? 0;
-      syncMediaSessionMetadata(song);
+      syncMediaSessionMetadata(song, { resume, pause, previous, next, seek });
       void syncTrackDetails(song);
+      persistPlaybackState();
     });
+  }
+
+  function handleProviderConfigChange(): void {
+    const tracks = queue.value.tracks;
+    const cursor = queue.value.index;
+    const wasPlaying = state.value === "playing";
+    engine.value.destroy();
+    engine.value = createEngine();
+    bindEngine(engine.value);
+    engine.value.setMode(mode.value);
+    if (tracks.length) engine.value.replaceQueue(tracks, cursor);
+    if (wasPlaying && tracks.length) void replayRestoredQueue();
   }
 
   async function replayRestoredQueue(): Promise<void> {
@@ -95,6 +95,7 @@ export const usePlayerStore = defineStore("player", () => {
     state.value = "loading";
     currentTimeMs.value = 0;
     durationMs.value = song.durationMs ?? 0;
+    persistPlaybackState();
     try {
       await engine.value.playSong(song, quality.value);
       state.value = engine.value.getState();
@@ -109,6 +110,7 @@ export const usePlayerStore = defineStore("player", () => {
     engine.value.replaceQueue(items, cursor);
     currentTimeMs.value = 0;
     durationMs.value = currentSong.value?.durationMs ?? 0;
+    persistPlaybackState();
     try {
       await engine.value.playCurrent(quality.value);
       state.value = engine.value.getState();
@@ -120,6 +122,7 @@ export const usePlayerStore = defineStore("player", () => {
   function pause(): void {
     engine.value.pause();
     state.value = "paused";
+    persistPlaybackState();
   }
 
   async function resume(): Promise<void> {
@@ -161,6 +164,7 @@ export const usePlayerStore = defineStore("player", () => {
   function seek(timeMs: number): void {
     currentTimeMs.value = timeMs;
     engine.value.seek(timeMs);
+    persistPlaybackState();
   }
 
   async function jumpTo(index: number): Promise<void> {
@@ -176,6 +180,7 @@ export const usePlayerStore = defineStore("player", () => {
     mode.value = nextMode;
     queue.value = queue.value.setMode(nextMode);
     engine.value.setMode(nextMode);
+    persistPlaybackState();
   }
 
   function cycleMode(): void {
@@ -185,54 +190,31 @@ export const usePlayerStore = defineStore("player", () => {
 
   async function setQuality(nextQuality: AudioQuality): Promise<void> {
     quality.value = nextQuality;
+    persistPlaybackState();
     if (!currentSong.value) return;
     engine.value.replaceQueue(queue.value.tracks, queue.value.index);
     await replayRestoredQueue();
   }
 
-  function syncMediaSessionMetadata(song: NormalizedSong): void {
-    if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return;
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.name,
-      artist: song.artistText,
-      album: song.album?.name ?? "",
-    });
-    setMediaSessionHandler("play", () => void resume());
-    setMediaSessionHandler("pause", () => pause());
-    setMediaSessionHandler("previoustrack", () => void previous());
-    setMediaSessionHandler("nexttrack", () => void next());
-    setMediaSessionHandler("stop", () => pause());
-    setMediaSessionHandler("seekto", (details) => {
-      if (typeof details.seekTime === "number") seek(details.seekTime * 1000);
-    });
-    syncMediaSessionPosition();
-  }
-
-  function setMediaSessionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler): void {
-    try {
-      navigator.mediaSession.setActionHandler(action, handler);
-    } catch {
-      // Safari/iOS 可能只支持部分 Media Session action；单个失败不能影响其它锁屏控制。
+  async function restoreLastSession(): Promise<void> {
+    if (state.value !== "idle" || currentSong.value || queue.value.length > 0) return;
+    const saved = loadPlayerSnapshot();
+    if (!saved) return;
+    mode.value = saved.mode;
+    quality.value = saved.quality;
+    engine.value.setMode(saved.mode);
+    if (!saved.queue.length) {
+      persistPlaybackState();
+      return;
     }
-  }
-
-  function syncMediaSessionPlaybackState(nextState: typeof state.value): void {
-    if (!("mediaSession" in navigator)) return;
-    navigator.mediaSession.playbackState = nextState === "playing" ? "playing" : nextState === "paused" ? "paused" : "none";
-  }
-
-  function syncMediaSessionPosition(): void {
-    const session = "mediaSession" in navigator ? navigator.mediaSession as MediaSession & { setPositionState?: (state?: MediaPositionState) => void } : null;
-    if (!session?.setPositionState || durationMs.value <= 0) return;
-    try {
-      session.setPositionState({
-        duration: Math.max(0, durationMs.value / 1000),
-        position: Math.min(Math.max(0, currentTimeMs.value / 1000), Math.max(0, durationMs.value / 1000)),
-        playbackRate: 1,
-      });
-    } catch {
-      // 部分浏览器要求 duration/position 为有限非负数；非法时忽略，不影响播放
-    }
+    queue.value = new PlaybackQueue().setMode(saved.mode).replace(saved.queue, saved.cursor);
+    currentSong.value = queue.value.current;
+    currentTimeMs.value = saved.currentTimeMs;
+    durationMs.value = currentSong.value?.durationMs ?? 0;
+    engine.value.replaceQueue(saved.queue, saved.cursor);
+    await replayRestoredQueue();
+    if (saved.currentTimeMs > 0 && engine.value.getState() !== "error") seek(saved.currentTimeMs);
+    persistPlaybackState();
   }
 
   async function loadLyric(song: NormalizedSong): Promise<void> {
@@ -255,7 +237,6 @@ export const usePlayerStore = defineStore("player", () => {
       await loadLyric(song);
       await libraryStore.recordRecent(song);
     } catch (caught) {
-      // 播放已经成功后，歌词或最近播放写入失败不能覆盖真实播放状态。
       console.warn("Track detail sync failed", caught);
     }
   }
@@ -269,6 +250,21 @@ export const usePlayerStore = defineStore("player", () => {
     const result = await service.download(song, "flac", { server: Boolean(accountStore.user), fallbackWindow });
     if (result.method === "server") await accountStore.refreshDownloads();
     return result;
+  }
+
+  function persistPlaybackState(): void {
+    savePlayerSnapshot(playerSnapshot());
+  }
+
+  function playerSnapshot(): PlayerSnapshot {
+    return {
+      mode: mode.value,
+      quality: quality.value,
+      queue: queue.value.tracks,
+      cursor: queue.value.index,
+      currentTimeMs: currentTimeMs.value,
+      updatedAt: Date.now(),
+    };
   }
 
   return {
@@ -297,6 +293,7 @@ export const usePlayerStore = defineStore("player", () => {
     setMode,
     cycleMode,
     setQuality,
+    restoreLastSession,
     activeLine,
     downloadSong,
   };

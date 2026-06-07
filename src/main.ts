@@ -4,6 +4,7 @@ import App from "@/App.vue";
 import router from "@/router";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLibraryStore } from "@/stores/libraryStore";
+import { usePlayerStore } from "@/stores/playerStore";
 import "@/styles/variables.css";
 import "@/styles/app.css";
 
@@ -26,5 +27,8 @@ async function bootstrap(): Promise<void> {
   } catch (caught) {
     console.error("Library load failed", caught);
   }
-  await useAccountStore(pinia).loadMe();
+  await usePlayerStore(pinia).restoreLastSession();
+  void useAccountStore(pinia).loadMe().catch((caught) => {
+    console.error("Account session load failed", caught);
+  });
 }
