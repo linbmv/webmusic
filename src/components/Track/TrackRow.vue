@@ -23,7 +23,7 @@
       <div v-if="isCurrentlyPlaying" class="playing-indicator" aria-label="正在播放">
         <Volume2 :size="20" />
       </div>
-      <div v-if="item.cover" class="track-cover" :style="{ backgroundImage: `url(${item.cover})` }" />
+      <img v-if="item.cover" class="track-cover" :src="item.cover" :alt="`${item.name} 封面`" loading="lazy" decoding="async" />
       <div v-else class="track-cover placeholder" />
       <div class="track-copy">
         <strong class="ellipsis">{{ item.name }}</strong>
@@ -378,8 +378,7 @@ async function onDelete(): Promise<void> {
   width: 42px;
   height: 42px;
   border-radius: 6px;
-  background-size: cover;
-  background-position: center;
+  object-fit: cover;
   flex: 0 0 auto;
 }
 

@@ -1,13 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
 import AppShell from "@/views/AppShell.vue";
-import DiscoverView from "@/views/DiscoverView.vue";
-import LibraryView from "@/views/LibraryView.vue";
-import LocalView from "@/views/LocalView.vue";
-import MeView from "@/views/MeView.vue";
-import PlaylistDetailView from "@/views/PlaylistDetailView.vue";
-import SearchView from "@/views/SearchView.vue";
-import SettingsView from "@/views/SettingsView.vue";
-import ToplistView from "@/views/ToplistView.vue";
 
 export default createRouter({
   history: createWebHistory(),
@@ -17,14 +9,14 @@ export default createRouter({
       component: AppShell,
       redirect: "/discover",
       children: [
-        { path: "discover", component: DiscoverView },
-        { path: "search", component: SearchView },
-        { path: "local", component: LocalView },
-        { path: "toplist", component: ToplistView },
-        { path: "library", component: LibraryView },
-        { path: "me", component: MeView },
-        { path: "settings", component: SettingsView },
-        { path: "playlist/:id", component: PlaylistDetailView },
+        { path: "discover", component: () => import("@/views/DiscoverView.vue") },
+        { path: "search", component: () => import("@/views/SearchView.vue") },
+        { path: "local", component: () => import("@/views/LocalView.vue") },
+        { path: "toplist", component: () => import("@/views/ToplistView.vue") },
+        { path: "library", component: () => import("@/views/LibraryView.vue") },
+        { path: "me", component: () => import("@/views/MeView.vue") },
+        { path: "settings", component: () => import("@/views/SettingsView.vue") },
+        { path: "playlist/:id", component: () => import("@/views/PlaylistDetailView.vue") },
       ],
     },
   ],
