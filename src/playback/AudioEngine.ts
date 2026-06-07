@@ -9,6 +9,8 @@ type CachedAudioUrl = { result: AudioUrlResult; expiresAt: number };
 
 // 预解析直链缓存有效期：覆盖一首歌的播放时长，确保锁屏前解析好的下一首直链在切歌时仍有效
 const preResolvedTtlMs = 15 * 60 * 1000;
+// 预解析缓存容量上限：避免无限增长，12 条足够覆盖相邻歌曲和不同音质
+const maxPreResolvedUrls = 12;
 
 export class AudioEngine {
   private readonly audio: HTMLAudioElement;
@@ -18,9 +20,18 @@ export class AudioEngine {
   private currentSong: NormalizedSong | null = null;
   private wakeLock: WakeLockSentinelLike | null = null;
   private readonly preResolvedUrls = new Map<string, CachedAudioUrl>();
+  private operationId = 0;
   private readonly handleVisibilityChange = (): void => {
     if (document.visibilityState === "visible" && this.state === "playing") void this.requestWakeLock();
   };
+
+  private readonly onEnded = (): void => this.handleEnded();
+  private readonly onError = (): void => this.setState("error");
+  private readonly onPlay = (): void => { void this.requestWakeLock(); this.setState("playing"); };
+  private readonly onPause = (): void => { if (this.state === "playing") this.setState("paused"); void this.releaseWakeLock(); };
+  private readonly onTimeUpdate = (): void => this.emitTime();
+  private readonly onLoadedMetadata = (): void => this.emitTime();
+  private readonly onDurationChange = (): void => this.emitTime();
 
   private timeListeners = new Set<(timeMs: number, durationMs: number) => void>();
   private stateListeners = new Set<(state: EngineState) => void>();
@@ -69,6 +80,13 @@ export class AudioEngine {
   }
 
   destroy(): void {
+    this.audio.removeEventListener("ended", this.onEnded);
+    this.audio.removeEventListener("error", this.onError);
+    this.audio.removeEventListener("play", this.onPlay);
+    this.audio.removeEventListener("pause", this.onPause);
+    this.audio.removeEventListener("timeupdate", this.onTimeUpdate);
+    this.audio.removeEventListener("loadedmetadata", this.onLoadedMetadata);
+    this.audio.removeEventListener("durationchange", this.onDurationChange);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.audio.pause();
     this.audio.src = "";
@@ -95,12 +113,14 @@ export class AudioEngine {
   }
 
   async playCurrent(quality = this.currentQuality): Promise<void> {
+    const op = ++this.operationId;
     const song = this.currentSong ?? this.queue.current;
     if (!song) return;
     this.currentQuality = quality;
     this.setState("loading");
     try {
       const resolved = await this.resolvePlayableUrl(song, quality);
+      if (op !== this.operationId) return;
       this.audio.src = resolved.url;
       await this.requestWakeLock();
       try {
@@ -108,16 +128,19 @@ export class AudioEngine {
       } catch {
         // 锁屏/后台自动切歌时，浏览器可能因缺少用户手势拒绝 play()；
         // 保持暂停态，等待 MediaSession 的 play 按钮（用户手势）恢复，而不是进入错误态。
+        if (op !== this.operationId) return;
         this.currentSong = song;
         this.setState("paused");
         this.emitTrackChange();
         return;
       }
+      if (op !== this.operationId) return;
       this.currentSong = song;
       this.setState("playing");
       this.emitTrackChange();
       this.preResolveNeighbors(quality);
     } catch {
+      if (op !== this.operationId) return;
       this.setState("error");
       throw new Error(`Unable to play ${song.name}`);
     }
@@ -228,6 +251,20 @@ export class AudioEngine {
     const key = cacheKey(song, quality);
     const cached = this.preResolvedUrls.get(key);
     if (cached && cached.expiresAt > Date.now()) return;
+
+    // 容量控制：超过上限时删除最旧的缓存项
+    if (this.preResolvedUrls.size >= maxPreResolvedUrls) {
+      let oldestKey: string | null = null;
+      let oldestExpiry = Infinity;
+      for (const [k, v] of this.preResolvedUrls.entries()) {
+        if (v.expiresAt < oldestExpiry) {
+          oldestExpiry = v.expiresAt;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey) this.preResolvedUrls.delete(oldestKey);
+    }
+
     void this.fallback.resolvePlayableUrl(song, quality)
       .then((result) => {
         this.preResolvedUrls.set(key, { result, expiresAt: Date.now() + preResolvedTtlMs });
@@ -268,13 +305,13 @@ export class AudioEngine {
   }
 
   private bindEvents(): void {
-    this.audio.addEventListener("ended", () => this.handleEnded());
-    this.audio.addEventListener("error", () => this.setState("error"));
-    this.audio.addEventListener("play", () => { void this.requestWakeLock(); this.setState("playing"); });
-    this.audio.addEventListener("pause", () => { if (this.state === "playing") this.setState("paused"); void this.releaseWakeLock(); });
-    this.audio.addEventListener("timeupdate", () => this.emitTime());
-    this.audio.addEventListener("loadedmetadata", () => this.emitTime());
-    this.audio.addEventListener("durationchange", () => this.emitTime());
+    this.audio.addEventListener("ended", this.onEnded);
+    this.audio.addEventListener("error", this.onError);
+    this.audio.addEventListener("play", this.onPlay);
+    this.audio.addEventListener("pause", this.onPause);
+    this.audio.addEventListener("timeupdate", this.onTimeUpdate);
+    this.audio.addEventListener("loadedmetadata", this.onLoadedMetadata);
+    this.audio.addEventListener("durationchange", this.onDurationChange);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
   }
 
