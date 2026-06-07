@@ -1,8 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+const providerStorageKey = "music.provider.config.v2";
+const mockProviderConfig = JSON.stringify({ activeProviderId: "mock", fallbackProviderIds: ["mock"] });
+
 test("player mode button cycles list, single, and shuffle", async ({ page }) => {
   await page.goto("/discover");
-  await page.evaluate(() => localStorage.removeItem("music:player:v1"));
+  await page.evaluate(({ key, value }) => {
+    localStorage.setItem(key, value);
+    localStorage.removeItem("music:player:v1");
+  }, { key: providerStorageKey, value: mockProviderConfig });
   await page.reload();
 
   await page.getByRole("link", { name: "\u8bbe\u7f6e" }).click();

@@ -10,8 +10,8 @@ const baseProvider = {
 };
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
-  activeProviderId: "gdStudio",
-  fallbackProviderIds: ["freeMusic", "gdStudio"],
+  activeProviderId: "freeMusic",
+  fallbackProviderIds: ["gdStudio"],
   defaultQuality: "320kmp3",
   defaultSources: ["kuwo", "netease"],
   useBffProxy: true,
@@ -74,7 +74,6 @@ export function mergeProviderConfig(input: unknown = {}): ProviderRuntimeConfig 
 
 function normalizeActiveProviderId(input: unknown): ProviderId {
   const providerId = normalizeProviderId(input);
-  if (providerId === "freeMusic") return defaultProviderConfig.activeProviderId;
   return providerId ?? defaultProviderConfig.activeProviderId;
 }
 

@@ -13,8 +13,9 @@ describe("musicStore", () => {
     vi.useRealTimers();
     localStorage.removeItem(providerStorageKey);
     localStorage.removeItem(discoverStorageKey);
+    localStorage.setItem(providerStorageKey, JSON.stringify({ activeProviderId: "mock", fallbackProviderIds: ["mock"] }));
     setActivePinia(createPinia());
-    useProviderStore().switchProvider("mock");
+    useProviderStore();
   });
 
   afterEach(() => {
@@ -130,17 +131,17 @@ describe("musicStore", () => {
     expect(providerStore.config.providers.gdStudio.baseUrl).toBe(defaultProviderConfig.providers.gdStudio.baseUrl);
   });
 
-  it("uses GD Studio as the default provider and keeps FreeMusic/GD Studio fallback", () => {
+  it("uses FreeMusic as the default provider and keeps GD Studio fallback", () => {
     localStorage.removeItem(providerStorageKey);
     setActivePinia(createPinia());
 
-    expect(useProviderStore().config.activeProviderId).toBe("gdStudio");
-    expect(defaultProviderConfig.fallbackProviderIds).toEqual(["freeMusic", "gdStudio"]);
+    expect(useProviderStore().config.activeProviderId).toBe("freeMusic");
+    expect(defaultProviderConfig.fallbackProviderIds).toEqual(["gdStudio"]);
 
     localStorage.setItem(providerStorageKey, JSON.stringify({ activeProviderId: "freeMusic" }));
     setActivePinia(createPinia());
 
-    expect(useProviderStore().config.activeProviderId).toBe("gdStudio");
+    expect(useProviderStore().config.activeProviderId).toBe("freeMusic");
   });
 
   it("normalizes lowercase persisted provider ids", () => {
@@ -155,7 +156,40 @@ describe("musicStore", () => {
     expect(providerStore.config.activeProviderId).toBe("gdStudio");
     expect(providerStore.config.fallbackProviderIds).toEqual(["freeMusic", "gdStudio"]);
   });
+
+  it("aggregates song search across active and fallback providers", async () => {
+    const providerStore = useProviderStore();
+    providerStore.setConfig({ activeProviderId: "mock", fallbackProviderIds: ["gdStudio"] });
+    await nextTick();
+    vi.spyOn(providerStore.registry.get("mock"), "search").mockResolvedValue({
+      items: [song("shared"), song("mock-only")],
+      page: 1,
+      pageSize: 30,
+      hasMore: false,
+    });
+    vi.spyOn(providerStore.registry.get("gdStudio"), "search").mockResolvedValue({
+      items: [asGdSong(song("shared")), asGdSong(song("gd-only"))],
+      page: 1,
+      pageSize: 30,
+      hasMore: false,
+    });
+    const store = useMusicStore();
+
+    await store.runSearch("阴天", "song");
+
+    expect(store.searchResults.some((item) => item.provider.providerId === "mock")).toBe(true);
+    expect(store.searchResults.some((item) => item.provider.providerId === "gdStudio")).toBe(true);
+    expect(store.searchResults.filter((item) => item.name === "shared")).toHaveLength(1);
+  });
 });
+
+function asGdSong(input: NormalizedSong): NormalizedSong {
+  return {
+    ...input,
+    stableId: `gdStudio:netease:song:${input.providerSongId}`,
+    provider: { providerId: "gdStudio", source: "netease" },
+  };
+}
 
 function song(id: string): NormalizedSong {
   return {

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { zh } from "@/i18n/zh";
+import type { MusicProvider } from "@/providers/MusicProvider";
 import { useProviderStore } from "@/stores/providerStore";
 import type { NormalizedSong, SearchListItem, SearchType } from "@/types/music";
 
@@ -43,15 +44,15 @@ export const useSearchStore = defineStore("search", () => {
       suggestions.value = await withProviderFallback(async (provider) => provider.getSuggestions ? await provider.getSuggestions(query) : []);
       const req = { q: query, type, page: type === "song" ? 1 : 0, pageSize: 30 };
       if (type === "song") {
-        const results = await withProviderFallback(async (provider) => (await provider.search(req)).items);
+        const results = await aggregateProviderResults(async (provider) => (await provider.search(req)).items, songKey);
         if (requestId !== searchRequestId) return;
         searchResults.value = results;
         typedSearchResults.value = [];
       } else {
-        const results = await withProviderFallback(async (provider) => {
+        const results = await aggregateProviderResults(async (provider) => {
           if (!provider.searchTyped) throw new Error("Provider does not support typed search");
           return (await provider.searchTyped(req)).items;
-        });
+        }, typedItemKey);
         if (requestId !== searchRequestId) return;
         searchResults.value = [];
         typedSearchResults.value = results;
@@ -105,13 +106,10 @@ export const useSearchStore = defineStore("search", () => {
     }
   }
 
-  async function withProviderFallback<T>(request: (provider: ReturnType<typeof providerStore.registry.getActive>) => Promise<T>): Promise<T> {
-    const providers = [providerStore.activeProvider, ...providerStore.registry.getFallbacks()];
-    const seen = new Set<string>();
+  async function withProviderFallback<T>(request: (provider: MusicProvider) => Promise<T>): Promise<T> {
+    const providers = providerChain();
     let lastError: unknown;
     for (const provider of providers) {
-      if (seen.has(provider.id)) continue;
-      seen.add(provider.id);
       try {
         return await request(provider);
       } catch (error) {
@@ -119,6 +117,23 @@ export const useSearchStore = defineStore("search", () => {
       }
     }
     throw lastError instanceof Error ? lastError : new Error("Provider fallback chain failed");
+  }
+
+  async function aggregateProviderResults<T>(request: (provider: MusicProvider) => Promise<T[]>, keyOf: (item: T) => string): Promise<T[]> {
+    const settled = await Promise.allSettled(providerChain().map(async (provider) => request(provider)));
+    const failed = settled.filter((result) => result.status === "rejected");
+    const values = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    if (!values.length && failed.length) throw readAggregateError(failed);
+    return dedupeBy(values, keyOf);
+  }
+
+  function providerChain(): MusicProvider[] {
+    const seen = new Set<string>();
+    return [providerStore.activeProvider, ...providerStore.registry.getFallbacks()].filter((provider) => {
+      if (seen.has(provider.id)) return false;
+      seen.add(provider.id);
+      return true;
+    });
   }
 
   return {
@@ -139,3 +154,32 @@ export const useSearchStore = defineStore("search", () => {
     clearSearchDetail,
   };
 });
+
+function dedupeBy<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyOf(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function songKey(song: NormalizedSong): string {
+  const duration = song.durationMs ? Math.round(song.durationMs / 1000) : "";
+  return `${normalizeText(song.name)}|${normalizeText(song.artistText)}|${duration}`;
+}
+
+function typedItemKey(item: SearchListItem): string {
+  return `${item.source}|${normalizeText(item.title)}|${normalizeText(item.subtitle ?? "")}`;
+}
+
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function readAggregateError(results: PromiseSettledResult<unknown>[]): Error {
+  const failed = results.find((result) => result.status === "rejected");
+  const reason = failed?.status === "rejected" ? failed.reason : null;
+  return reason instanceof Error ? reason : new Error("Provider fallback chain failed");
+}

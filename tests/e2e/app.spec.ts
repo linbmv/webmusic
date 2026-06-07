@@ -1,9 +1,19 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const searchPlaceholder = "搜索歌曲、歌单、歌手、专辑";
+const providerStorageKey = "music.provider.config.v2";
+const mockProviderConfig = JSON.stringify({ activeProviderId: "mock", fallbackProviderIds: ["mock"] });
+
+async function forceMockProvider(page: Page): Promise<void> {
+  await page.evaluate(({ key, value }) => {
+    localStorage.setItem(key, value);
+  }, { key: providerStorageKey, value: mockProviderConfig });
+  await page.reload();
+}
 
 test("music shell renders final top bar and player", async ({ page }) => {
   await page.goto("/discover");
+  await forceMockProvider(page);
 
   // 顶部全局搜索框取代了旧的逐页大标题
   const toolbar = page.locator(".fm-toolbar");
@@ -13,11 +23,6 @@ test("music shell renders final top bar and player", async ({ page }) => {
   await expect(toolbar.getByRole("link", { name: "歌单" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "设置" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "我的" })).toBeVisible();
-
-  // 设置页切换到确定性的 mock provider，避免搜索/播放断言依赖外网速度
-  await toolbar.getByRole("link", { name: "设置" }).click();
-  await page.getByRole("combobox").selectOption("mock");
-  await toolbar.getByRole("link", { name: "主页" }).click();
 
   // 聚焦全局搜索框会路由到搜索页
   await search.focus();
@@ -49,11 +54,9 @@ test("music shell renders final top bar and player", async ({ page }) => {
 
 test("track row playback keeps the surrounding queue", async ({ page }) => {
   await page.goto("/discover");
+  await forceMockProvider(page);
 
-  const toolbar = page.locator(".fm-toolbar");
   const search = page.getByPlaceholder(searchPlaceholder);
-  await toolbar.getByRole("link", { name: "设置" }).click();
-  await page.getByRole("combobox").selectOption("mock");
   await search.focus();
   await page.getByRole("button", { name: /单曲/ }).click();
   await search.fill("not-in-mock-library");
