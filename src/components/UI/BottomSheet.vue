@@ -26,6 +26,7 @@
       <button
         v-for="(song, index) in player.queueItems"
         :key="song.stableId"
+        :ref="(el) => setQueueRow(el, index)"
         class="sheet-row"
         :class="{ playing: index === player.queueIndex }"
         @click="onPlayQueueItem(index)"
@@ -40,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, onBeforeUpdate, ref, watch, type ComponentPublicInstance } from "vue";
 import { Check, Plus, X } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
@@ -50,6 +51,7 @@ import { useUiStore } from "@/stores/uiStore";
 const ui = useUiStore();
 const library = useLibraryStore();
 const player = usePlayerStore();
+const queueRows = ref<HTMLElement[]>([]);
 
 const open = computed(() => ui.bottomSheet !== null);
 const isAddToPlaylist = computed(() => ui.bottomSheet?.type === "addToPlaylist");
@@ -64,6 +66,28 @@ const createLabel = computed(() => {
   const name = defaultPlaylistName();
   return name ? formatName(zh.music.createPlaylistAndAdd, name) : zh.common.createPlaylist;
 });
+
+onBeforeUpdate(() => {
+  queueRows.value = [];
+});
+
+watch(
+  () => [isQueue.value, player.queueIndex, player.queueItems.length] as const,
+  async ([queueOpen]) => {
+    if (!queueOpen) return;
+    await nextTick();
+    scrollCurrentQueueRow();
+  },
+  { flush: "post" },
+);
+
+function setQueueRow(el: Element | ComponentPublicInstance | null, index: number): void {
+  if (el instanceof HTMLElement) queueRows.value[index] = el;
+}
+
+function scrollCurrentQueueRow(): void {
+  queueRows.value[player.queueIndex]?.scrollIntoView({ block: "center", behavior: "auto" });
+}
 
 function containsActiveSong(playlistId: string): boolean {
   const sheet = ui.bottomSheet;
@@ -105,7 +129,7 @@ function formatName(template: string, name: string): string {
 
 async function onPlayQueueItem(index: number): Promise<void> {
   await player.jumpTo(index);
-  ui.closeBottomSheet();
+  if (player.state === "playing" && player.queueIndex === index) ui.closeBottomSheet();
 }
 </script>
 
