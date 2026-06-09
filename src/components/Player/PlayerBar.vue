@@ -1,5 +1,9 @@
 <template>
   <section class="player-bar" role="button" tabindex="0" @click="onBarClick" @dblclick="onBarDoubleClick" @keydown.enter="ui.openPlayer">
+    <!-- 移动端顶部细线进度条：纯展示，不占横向空间 -->
+    <div class="bar-thinline" aria-hidden="true">
+      <div class="bar-thinline-fill" :style="{ width: progressPercent }" />
+    </div>
     <div class="bar-cover" :style="coverStyle" />
     <div class="bar-copy">
       <strong class="ellipsis">{{ currentTitle }}</strong>
@@ -108,9 +112,36 @@ function isDesktopPointer(): boolean {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 14px;
-  background: var(--bg-elevated);
-  border: 0.5px solid var(--bg-border);
+  border-radius: var(--radius-md);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(102, 126, 234, 0.15);
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+/* 移动端顶部细线进度条：贴播放条顶边，纯展示不占横向空间 */
+.bar-thinline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 1;
+}
+
+.bar-thinline-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  box-shadow: 0 0 8px var(--primary-glow);
+  transition: width 250ms linear;
+}
+
+.player-bar:hover {
+  box-shadow: var(--shadow-lg), 0 0 50px rgba(102, 126, 234, 0.25);
 }
 
 .bar-cover {
@@ -118,8 +149,14 @@ function isDesktopPointer(): boolean {
   height: 38px;
   flex: 0 0 auto;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform var(--transition-fast);
+}
+
+.player-bar:hover .bar-cover {
+  transform: scale(1.05);
 }
 
 .bar-copy {
@@ -127,6 +164,10 @@ function isDesktopPointer(): boolean {
   min-width: 0;
   flex: 1;
   gap: 3px;
+}
+
+.bar-copy strong {
+  font-weight: 600;
 }
 
 .bar-copy small {
@@ -151,7 +192,22 @@ function isDesktopPointer(): boolean {
   width: 36px;
   height: 36px;
   min-height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.bar-controls .icon-btn:hover {
+  background: var(--glass-hover);
+  border-color: var(--glass-border);
+  transform: translateY(-1px);
+}
+
+.bar-controls .icon-btn:active {
+  transform: translateY(0);
 }
 
 .play-btn {
@@ -162,7 +218,18 @@ function isDesktopPointer(): boolean {
   display: grid;
   place-items: center;
   color: #fff;
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 4px 16px var(--primary-glow);
+  transition: all var(--transition-fast);
+}
+
+.play-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px var(--primary-glow);
+}
+
+.play-btn:active {
+  transform: scale(1.02);
 }
 
 .lyric-btn {
@@ -174,18 +241,35 @@ function isDesktopPointer(): boolean {
   font-weight: 600;
   color: var(--text-muted);
   background: transparent;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.lyric-btn:hover {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
 }
 
 .lyric-btn.active {
   color: #fff;
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 2px 8px var(--primary-glow);
 }
 
 .mode-btn {
   color: var(--text-muted);
 }
 
+.mode-btn:hover {
+  color: var(--text);
+}
+
 @media (min-width: 769px) {
+  /* 桌面端有行内可拖动进度条，隐藏顶部细线避免重复 */
+  .bar-thinline {
+    display: none;
+  }
+
   .player-bar {
     left: 16px;
     right: 16px;
@@ -193,7 +277,7 @@ function isDesktopPointer(): boolean {
     min-height: 64px;
     gap: 12px;
     padding: 7px 12px;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
   }
 
   .bar-cover {
@@ -213,6 +297,11 @@ function isDesktopPointer(): boolean {
     appearance: none;
     outline: none;
     cursor: pointer;
+    transition: height var(--transition-fast);
+  }
+
+  .bar-progress:hover {
+    height: 6px;
   }
 
   .bar-time {
@@ -285,7 +374,16 @@ function isDesktopPointer(): boolean {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.5);
+  transition: all var(--transition-fast);
+}
+
+.bar-progress:hover::-webkit-slider-thumb,
+.bar-progress:hover::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  box-shadow: 0 3px 12px rgba(102, 126, 234, 0.7);
 }
 
 .bar-progress::-webkit-slider-thumb {

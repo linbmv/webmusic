@@ -8,7 +8,7 @@
     </div>
     <div
       class="track-row"
-      :class="{ compact, swiping: dragging, 'currently-playing': isCurrentlyPlaying }"
+      :class="{ compact, swiping: dragging, 'currently-playing': isCurrentlyPlaying, loading: isLoading }"
       :style="{ transform: `translateX(${swipeOffset}px)` }"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
@@ -20,11 +20,17 @@
       @touchcancel="onTouchCancel"
       @contextmenu.prevent="onLongPress"
     >
-      <div v-if="isCurrentlyPlaying" class="playing-indicator" aria-label="正在播放">
-        <Volume2 :size="20" />
+      <!-- Click ripple effect -->
+      <div v-if="rippleVisible" class="ripple" :style="rippleStyle" />
+
+      <div class="track-cover-wrap">
+        <img v-if="item.cover" class="track-cover" :src="item.cover" :alt="`${item.name} 封面`" loading="lazy" decoding="async" />
+        <div v-else class="track-cover placeholder" />
+        <!-- Loading spinner overlay on cover when clicked -->
+        <div v-if="isLoading" class="cover-loading" aria-label="加载中">
+          <div class="spinner" />
+        </div>
       </div>
-      <img v-if="item.cover" class="track-cover" :src="item.cover" :alt="`${item.name} 封面`" loading="lazy" decoding="async" />
-      <div v-else class="track-cover placeholder" />
       <div class="track-copy">
         <strong class="ellipsis">{{ item.name }}</strong>
         <small class="ellipsis">{{ item.artistText }}</small>
@@ -40,8 +46,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { Download, MoreHorizontal, Trash2, Volume2 } from "lucide-vue-next";
+import { computed, ref, watch } from "vue";
+import { Download, MoreHorizontal, Trash2 } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useAccountStore } from "@/stores/accountStore";
@@ -78,6 +84,15 @@ const touchStartY = ref(0);
 // 用它让 pointer 处理器在 touch 设备上完全让位，避免两套逻辑争用共享状态
 const touchActive = ref(false);
 const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+// Loading state and ripple effect
+const isLoading = ref(false);
+const rippleVisible = ref(false);
+const rippleStyle = ref({});
+
+let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
+let loadingStartedAt = 0;
+const minLoadingMs = 450;
 
 // 只有处于歌单或收藏上下文时才允许左滑删除；搜索结果等无删除语义
 const canDelete = computed(() => Boolean(props.playlistId) || Boolean(props.isFavorites));
@@ -133,6 +148,7 @@ async function onPointerUp(event: PointerEvent): Promise<void> {
   const offset = swipeOffset.value;
   swipeOffset.value = 0;
   if (!moved.value) {
+    showRipple(event);
     onPlay();
     return;
   }
@@ -155,7 +171,57 @@ function cancelDrag(): void {
 }
 
 function onPlay(): void {
-  if (props.item.song) emit("play");
+  if (!props.item.song) return;
+
+  // Show loading state immediately
+  isLoading.value = true;
+  loadingStartedAt = Date.now();
+
+  // Clear any existing timeout
+  if (loadingTimeout) clearTimeout(loadingTimeout);
+
+  // Auto-hide loading after 3 seconds (in case play event doesn't trigger state change)
+  loadingTimeout = setTimeout(() => {
+    isLoading.value = false;
+  }, 3000);
+
+  emit("play");
+}
+
+// 即使秒开也让高亮至少可见 minLoadingMs，避免"一闪而过"
+function clearLoadingWithMinDuration(): void {
+  if (loadingTimeout) {
+    clearTimeout(loadingTimeout);
+    loadingTimeout = null;
+  }
+  const elapsed = Date.now() - loadingStartedAt;
+  const remaining = Math.max(0, minLoadingMs - elapsed);
+  if (remaining === 0) {
+    isLoading.value = false;
+    return;
+  }
+  loadingTimeout = setTimeout(() => {
+    isLoading.value = false;
+    loadingTimeout = null;
+  }, remaining);
+}
+
+function showRipple(event: PointerEvent | Touch): void {
+  const rect = (event.target as HTMLElement).closest('.track-row')?.getBoundingClientRect();
+  if (!rect) return;
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  rippleStyle.value = {
+    left: `${x}px`,
+    top: `${y}px`,
+  };
+
+  rippleVisible.value = true;
+  setTimeout(() => {
+    rippleVisible.value = false;
+  }, 600);
 }
 
 function onMore(): void {
@@ -290,6 +356,12 @@ async function onDelete(): Promise<void> {
     });
   }
 }
+
+// Watch for playing state changes to clear loading
+watch(isCurrentlyPlaying, (nowPlaying) => {
+  if (nowPlaying) clearLoadingWithMinDuration();
+});
+
 </script>
 
 <style scoped>
@@ -311,14 +383,20 @@ async function onDelete(): Promise<void> {
 
 .swipe-hint.dl {
   left: 0;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(235, 235, 245, 0.72);
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.3), rgba(102, 126, 234, 0.15));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: rgba(235, 235, 245, 0.85);
+  border-right: 1px solid rgba(102, 126, 234, 0.3);
 }
 
 .swipe-hint.del {
   right: 0;
-  background: rgba(255, 69, 58, 0.26);
+  background: linear-gradient(-90deg, rgba(255, 69, 58, 0.4), rgba(255, 69, 58, 0.2));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #ff453a;
+  border-left: 1px solid rgba(255, 69, 58, 0.4);
 }
 
 .swipe-hint.armed {
@@ -333,14 +411,28 @@ async function onDelete(): Promise<void> {
   gap: 9px;
   min-height: 54px;
   padding: 0 8px 0 6px;
-  border-radius: 8px;
-  background: #0d0d10;
-  transition: transform 160ms ease;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
+  transition: transform 160ms ease, background var(--transition-fast), box-shadow var(--transition-fast);
   cursor: pointer;
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  overflow: hidden;
+}
+
+.track-row:hover {
+  background: var(--glass-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.track-row:active {
+  transform: scale(0.98);
 }
 
 .track-row.compact {
@@ -351,40 +443,96 @@ async function onDelete(): Promise<void> {
   transition: none;
 }
 
-.playing-indicator {
+.track-row.loading {
+  background: linear-gradient(90deg, var(--primary-soft), var(--glass-hover));
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), 0 4px 20px var(--primary-glow);
+}
+
+.track-row.loading .track-copy strong {
+  color: #fff;
+}
+
+/* Ripple effect */
+.ripple {
   position: absolute;
-  left: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #0a84ff;
-  z-index: 2;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
   pointer-events: none;
-  animation: pulse-playing 2s ease-in-out infinite;
+  animation: ripple-animation 0.6s ease-out;
+  z-index: 0;
 }
 
-@keyframes pulse-playing {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+@keyframes ripple-animation {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(15);
+    opacity: 0;
+  }
 }
 
-.track-row.currently-playing .track-cover {
-  opacity: 0.85;
+/* Cover wrapper + loading overlay */
+.track-cover-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.cover-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  z-index: 3;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 正在播放：持续高亮边框 + 发光，替代左侧音量图标 */
+.track-row.currently-playing {
+  background: linear-gradient(90deg, var(--primary-soft), var(--glass-hover));
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), 0 4px 20px var(--primary-glow);
+}
+
+.track-row.currently-playing .track-copy strong {
+  color: #fff;
 }
 
 .track-cover {
   width: 42px;
   height: 42px;
-  border-radius: 6px;
+  border-radius: 8px;
   object-fit: cover;
   flex: 0 0 auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .track-cover.placeholder {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+  border: 1px solid var(--glass-border);
 }
 
 .track-row.compact .track-cover {
