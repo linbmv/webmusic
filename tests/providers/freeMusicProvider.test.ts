@@ -19,7 +19,7 @@ describe("FreeMusicProvider", () => {
       expect(url.pathname).toBe("/api/music/free/search");
       expect(url.searchParams.get("q")).toBe("\u9634\u5929");
       expect(url.searchParams.get("pageSize")).toBe("1");
-      expect(url.searchParams.getAll("sources")).toEqual(["kuwo", "netease"]);
+      expect(url.searchParams.getAll("sources")).toEqual(["netease"]);
       return jsonResponse({ songs: [{ id: "166739", name: "\u9634\u5929", artist: "\u83ab\u6587\u851a", source: "kuwo" }] });
     });
     vi.stubGlobal("fetch", fetchMock);

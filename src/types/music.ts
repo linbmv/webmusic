@@ -1,4 +1,4 @@
-export type ProviderId = "mock" | "freeMusic" | "karpov" | "gdStudio" | "custom";
+export type ProviderId = "mock" | "freeMusic" | "karpov" | "gdStudio" | "neteaseCloud" | "custom";
 export type MusicSourceId = "netease" | "kuwo" | "qqmusic" | "kugou" | "joox";
 export type SearchType = "song" | "playlist" | "artist" | "album";
 export type AudioQuality = "128kmp3" | "320kmp3" | "flac";

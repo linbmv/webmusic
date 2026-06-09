@@ -52,7 +52,8 @@ export class GdStudioProvider implements MusicProvider {
 
   async healthCheck(): Promise<ProviderHealth> {
     const startedAt = performance.now();
-    const result = await this.search({ q: "\u6674\u5929", page: 1, pageSize: 1, sources: ["kuwo"] });
+    // \u7528 netease \u5065\u5eb7\u68c0\u67e5\uff1akuwo \u4e0a\u6e38\u8fd1\u671f\u975e\u5e38\u6162\uff0c\u4f1a\u628a\u53ef\u7528\u6e90\u8bef\u5224\u4e3a\u4e0d\u53ef\u7528
+    const result = await this.search({ q: "\u6674\u5929", page: 1, pageSize: 1, sources: ["netease"] });
     if (result.items.length === 0) throw new Error("GD Studio health check returned no playable search result");
     return { ok: true, latencyMs: Math.round(performance.now() - startedAt), message: "5 min / 50 requests public limit" };
   }

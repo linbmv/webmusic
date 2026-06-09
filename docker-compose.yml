@@ -17,6 +17,9 @@ services:
       COOKIE_SECURE: "${COOKIE_SECURE:-}"
       # 可选：仅在使用 Karpov provider 时需要
       KARPOV_API_KEY: "${KARPOV_API_KEY:-}"
+      # 可选：自建 NeteaseCloudMusicApi 地址，用于歌单/歌词/搜索兜底。
+      # 默认指向同 Docker 网络里的服务名；未部署该服务时网易云兜底会自动失败，不影响主源。
+      NETEASE_API_BASE: "${NETEASE_API_BASE:-http://netease-cloud-music-api:3000}"
     volumes:
       # 数据持久化目录，宿主路径可在 .env 用 WEBMUSIC_DATA_DIR 覆盖
       - "${WEBMUSIC_DATA_DIR:-./webmusic-data}:/data"

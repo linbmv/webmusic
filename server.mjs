@@ -7,16 +7,19 @@ import { handleDownloads } from "./backend/downloads.mjs";
 import { httpError, sendJson, sendText } from "./backend/http.mjs";
 import { handleLibrary } from "./backend/library.mjs";
 import { buildProxyUrl, matchesProxyPrefix } from "./backend/proxy.mjs";
+import { cacheKey, getCached, setCached, ttlForPath } from "./backend/musicCache.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const distDir = join(root, "dist");
 const HTML_CACHE_CONTROL = "no-cache";
 const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const STATIC_CACHE_CONTROL = "public, max-age=3600";
+const neteaseApiBase = process.env.NETEASE_API_BASE ?? "http://127.0.0.1:3000";
 const upstreams = {
   free: "https://ios.25pan.com/api/v1/freemusic",
   karpov: "https://gateway.karpov.cn",
   gdstudio: "https://music-api.gdstudio.xyz/api.php",
+  netease: neteaseApiBase,
 };
 const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -46,6 +49,10 @@ export function createMusicServer() {
         await proxyMusic(url, res, { prefix: "/api/music/gdstudio", baseUrl: upstreams.gdstudio });
         return;
       }
+      if (matchesProxyPrefix(url.pathname, "/api/music/netease")) {
+        await proxyMusic(url, res, { prefix: "/api/music/netease", baseUrl: upstreams.netease });
+        return;
+      }
       serveStatic(url.pathname, res);
     } catch (error) {
       const status = Number(error?.status ?? 502);
@@ -66,12 +73,27 @@ async function proxyMusic(url, res, options) {
     accept: "application/json,text/plain,*/*",
     "user-agent": "music-clone-bff/0.1",
   };
+  // 带密钥的上游（Karpov）不缓存，避免缓存鉴权相关响应
+  const cacheable = !options.authorization;
+  const key = cacheable ? cacheKey("GET", upstreamUrl.toString()) : null;
+  if (key) {
+    const hit = getCached(key);
+    if (hit) {
+      res.writeHead(hit.status, { ...hit.headers, "x-webmusic-cache": "HIT" });
+      res.end(hit.body);
+      return;
+    }
+  }
   if (options.authorization) headers.authorization = options.authorization;
-  const response = await fetch(upstreamUrl, {
-    headers,
-  });
-  res.writeHead(response.status, filterHeaders(response.headers));
-  res.end(Buffer.from(await response.arrayBuffer()));
+  const response = await fetch(upstreamUrl, { headers });
+  const body = Buffer.from(await response.arrayBuffer());
+  const outHeaders = { ...filterHeaders(response.headers), "x-webmusic-cache": cacheable ? "MISS" : "BYPASS" };
+  res.writeHead(response.status, outHeaders);
+  res.end(body);
+  // 仅缓存成功响应
+  if (key && response.status >= 200 && response.status < 300) {
+    setCached(key, { status: response.status, headers: filterHeaders(response.headers), body }, ttlForPath(upstreamUrl.pathname + upstreamUrl.search));
+  }
 }
 
 function bearerFromEnv() {

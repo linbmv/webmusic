@@ -7,6 +7,9 @@ import type { AudioQuality, AudioUrlResult, NormalizedSong, PlaybackMode } from 
 type EngineState = "idle" | "loading" | "playing" | "paused" | "error";
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: "release", listener: () => void) => void };
 
+// 顺序播放时预解析当前之后的曲目数量
+const PRELOAD_AHEAD = 2;
+
 export class AudioEngine {
   private audio: HTMLAudioElement;
   private queue = new PlaybackQueue();
@@ -198,7 +201,7 @@ export class AudioEngine {
   }
 
   private preResolveNeighbors(quality: AudioQuality): void {
-    const candidates = [this.queue.peekNext(), this.queue.peekPrevious()];
+    const candidates = [this.queue.peekNext(), this.queue.peekPrevious(), ...this.upcomingSongs(PRELOAD_AHEAD)];
     const seen = new Set<string>();
     for (const song of candidates) {
       if (!song || song.stableId === this.currentSong?.stableId) continue;
@@ -209,6 +212,20 @@ export class AudioEngine {
         .then((result) => this.preloads.store(song, quality, result))
         .catch(() => undefined);
     }
+  }
+
+  // 顺序播放时，预解析当前之后的若干首，点歌单后续曲目能更快开播
+  private upcomingSongs(count: number): NormalizedSong[] {
+    const tracks = this.queue.tracks;
+    if (tracks.length <= 1) return [];
+    const start = this.queue.index;
+    const result: NormalizedSong[] = [];
+    for (let offset = 1; offset <= count; offset += 1) {
+      const song = tracks[start + offset];
+      if (!song) break;
+      result.push(song);
+    }
+    return result;
   }
 
   private handleEnded(): void {

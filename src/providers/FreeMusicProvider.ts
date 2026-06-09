@@ -78,7 +78,8 @@ export class FreeMusicProvider implements MusicProvider {
 
   async healthCheck(): Promise<ProviderHealth> {
     const startedAt = performance.now();
-    const result = await this.search({ q: zh.names.yinTian, type: "song", page: 1, pageSize: 1, sources: ["kuwo", "netease"] });
+    // 只用 netease 健康检查：kuwo 上游近期 25s 不返回，会拖死整个 provider
+    const result = await this.search({ q: zh.names.yinTian, type: "song", page: 1, pageSize: 1, sources: ["netease"] });
     if (!result.items.length) throw new Error("FreeMusic health check returned no playable search result");
     return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };
   }
@@ -94,12 +95,14 @@ export class FreeMusicProvider implements MusicProvider {
   async search(req: SearchRequest): Promise<PageResult<NormalizedSong>> {
     const page = req.page ?? 1;
     const pageSize = req.pageSize ?? 30;
+    // 未显式指定来源时只走 netease，避免上游自行扫到很慢的 kuwo
+    const sources = req.sources ?? ["netease"];
     const data = await this.http.getJson<SearchResponse>("/search", {
       q: req.q,
       type: req.type ?? "song",
       page,
       pageSize,
-      sources: req.sources,
+      sources,
     });
     const items = (data.songs ?? data.list ?? data.data ?? []).map((item) => normalizeFreeMusicSong(item as never));
     return { items, page, pageSize, hasMore: Boolean(data.hasMore), total: data.total };
@@ -190,8 +193,16 @@ export class FreeMusicProvider implements MusicProvider {
   }
 
   async getPlaylist(req: PlaylistRequest): Promise<NormalizedPlaylist> {
-    const data = await this.http.getJson<Record<string, unknown>>("/playlist", { id: req.id, source: req.source ?? "netease" });
-    return normalizeFreeMusicPlaylist((data.playlist ?? data) as never);
+    const source = req.source ?? "netease";
+    const data = await this.http.getJson<Record<string, unknown>>("/playlist", { id: req.id, source });
+    const rawPlaylist = (data.playlist ?? data) as Record<string, unknown>;
+    const detail = normalizeFreeMusicPlaylist(rawPlaylist as never);
+    // /playlist 有时只返回 { songs, playlist_link }，没有 name/id/cover；用请求 id 兜底，保证歌单页稳定
+    if (!detail.name || detail.name === "undefined" || !detail.id || detail.id === "undefined") {
+      const songCount = Array.isArray(rawPlaylist.songs) ? rawPlaylist.songs.length : detail.trackCount;
+      return { ...detail, id: req.id, name: detail.name && detail.name !== "undefined" ? detail.name : `歌单 ${req.id}`, trackCount: songCount, source };
+    }
+    return detail;
   }
 
   async getPlaylistPage(req: PlaylistRequest): Promise<PageResult<NormalizedSong>> {

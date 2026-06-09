@@ -3,6 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
 const karpovApiKey = process.env.KARPOV_API_KEY;
+const neteaseApiBase = process.env.NETEASE_API_BASE ?? "http://127.0.0.1:3000";
 
 export default defineConfig({
   plugins: [vue()],
@@ -31,6 +32,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/music\/gdstudio/, ""),
+      },
+      "/api/music/netease": {
+        target: neteaseApiBase,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/music\/netease/, ""),
       },
       "/api/auth": "http://127.0.0.1:8080",
       "/api/me": "http://127.0.0.1:8080",

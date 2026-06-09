@@ -43,6 +43,28 @@ interface GdStudioSong {
   source?: MusicSourceId;
 }
 
+// NeteaseCloudMusicApi (binaryify) 歌曲结构
+interface NcmSong {
+  id: string | number;
+  name?: string;
+  ar?: Array<{ name?: string }>;
+  artists?: Array<{ name?: string }>;
+  al?: { id?: string | number; name?: string; picUrl?: string };
+  album?: { id?: string | number; name?: string; picUrl?: string };
+  dt?: number;
+  duration?: number;
+}
+
+interface NcmPlaylist {
+  id?: string | number;
+  name?: string;
+  description?: string;
+  coverImgUrl?: string;
+  picUrl?: string;
+  playCount?: number;
+  trackCount?: number;
+}
+
 interface FreePlaylist {
   id?: string | number;
   playlist_id?: string | number;
@@ -129,6 +151,39 @@ export function normalizeFreeMusicPlaylist(raw: FreePlaylist): NormalizedPlaylis
   };
 }
 
+export function normalizeNcmSong(raw: NcmSong): NormalizedSong {
+  const id = String(raw.id);
+  const artistList = (raw.ar ?? raw.artists ?? []).map((a) => a?.name).filter((n): n is string => Boolean(n));
+  const artists = artistList.length ? artistList : [zh.names.unknownArtist];
+  const album = raw.al ?? raw.album;
+  const coverUrl = album?.picUrl;
+  return {
+    stableId: `neteaseCloud:netease:song:${id}`,
+    providerSongId: id,
+    provider: { providerId: "neteaseCloud", source: "netease" },
+    name: raw.name ?? id,
+    artists,
+    artistText: artists.join(" / "),
+    album: album?.name ? { providerAlbumId: album.id ? String(album.id) : undefined, name: album.name, coverUrl } : undefined,
+    durationMs: raw.dt ?? (raw.duration ? raw.duration : undefined),
+    coverUrl,
+    raw,
+  };
+}
+
+export function normalizeNcmPlaylist(raw: NcmPlaylist, fallbackId: string): NormalizedPlaylist {
+  return {
+    id: String(raw.id ?? fallbackId),
+    name: raw.name ?? fallbackId,
+    description: raw.description,
+    coverUrl: raw.coverImgUrl ?? raw.picUrl,
+    playCount: raw.playCount,
+    trackCount: raw.trackCount,
+    source: "netease",
+    raw,
+  };
+}
+
 export function normalizeToplist(raw: Record<string, unknown>, source: MusicSourceId): ToplistGroup {
   const tracks = Array.isArray(raw.tracks) ? raw.tracks : [];
   return {
@@ -163,6 +218,10 @@ export function normalizeKarpovAudioUrl(raw: Record<string, unknown>, fallback: 
 
 export function normalizeGdStudioAudioUrl(raw: Record<string, unknown>, fallback: { source: MusicSourceId; quality: AudioQuality }): AudioUrlResult {
   return normalizeAudioUrl({ ...raw, direct: true }, { providerId: "gdStudio", source: fallback.source, quality: fallback.quality });
+}
+
+export function normalizeNcmAudioUrl(raw: Record<string, unknown>, fallback: { quality: AudioQuality }): AudioUrlResult {
+  return normalizeAudioUrl({ ...raw, direct: true }, { providerId: "neteaseCloud", source: "netease", quality: fallback.quality });
 }
 
 function splitArtists(value: string): string[] {

@@ -43,7 +43,7 @@ describe("musicStore", () => {
 
   it("uses only the active provider for discover", async () => {
     const providerStore = useProviderStore();
-    providerStore.switchProvider("custom");
+    providerStore.switchProvider("custom", true);
     await nextTick();
     const store = useMusicStore();
 
@@ -106,7 +106,7 @@ describe("musicStore", () => {
     await providerStore.checkActiveHealth();
     expect(providerStore.activeHealth?.ok).toBe(true);
 
-    providerStore.switchProvider("custom");
+    providerStore.switchProvider("custom", true);
 
     expect(providerStore.activeHealth).toBeNull();
     expect(providerStore.healthError).toBeNull();
@@ -136,7 +136,7 @@ describe("musicStore", () => {
     setActivePinia(createPinia());
 
     expect(useProviderStore().config.activeProviderId).toBe("freeMusic");
-    expect(defaultProviderConfig.fallbackProviderIds).toEqual(["gdStudio"]);
+    expect(defaultProviderConfig.fallbackProviderIds).toEqual(["gdStudio", "neteaseCloud"]);
 
     localStorage.setItem(providerStorageKey, JSON.stringify({ activeProviderId: "freeMusic" }));
     setActivePinia(createPinia());

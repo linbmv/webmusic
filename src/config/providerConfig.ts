@@ -1,11 +1,11 @@
 import type { AudioQuality, LibrarySettings, MusicSourceId, ProviderConfigEntry, ProviderId, ProviderRuntimeConfig } from "@/types/music";
 
-const providerIds = ["mock", "freeMusic", "karpov", "gdStudio", "custom"] as const satisfies readonly ProviderId[];
+const providerIds = ["mock", "freeMusic", "karpov", "gdStudio", "neteaseCloud", "custom"] as const satisfies readonly ProviderId[];
 const musicSourceIds = ["netease", "kuwo", "qqmusic", "kugou", "joox"] as const satisfies readonly MusicSourceId[];
 const audioQualities = ["128kmp3", "320kmp3", "flac"] as const satisfies readonly AudioQuality[];
 
 // Public providers: accessible without authentication
-export const publicProviderIds: readonly ProviderId[] = ["mock", "freeMusic", "gdStudio"];
+export const publicProviderIds: readonly ProviderId[] = ["mock", "freeMusic", "gdStudio", "neteaseCloud"];
 
 // Account-required providers: require user login (use backend secrets or account resources)
 export const accountRequiredProviderIds: readonly ProviderId[] = ["karpov", "custom"];
@@ -14,16 +14,21 @@ export function providerRequiresAccount(providerId: ProviderId): boolean {
   return accountRequiredProviderIds.includes(providerId);
 }
 
+// 上游音乐接口偶发 14-25s 慢响应，超时放宽到 20s，避免健康检查/搜索过早 abort
+const defaultProviderTimeoutMs = 20_000;
+
 const baseProvider = {
   enabled: true,
-  timeoutMs: 12_000,
+  timeoutMs: defaultProviderTimeoutMs,
 };
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
   activeProviderId: "freeMusic",
-  fallbackProviderIds: ["gdStudio"],
+  // FreeMusic 主源 → GD Studio 单曲 fallback → 自建网易云兜底
+  fallbackProviderIds: ["gdStudio", "neteaseCloud"],
   defaultQuality: "320kmp3",
-  defaultSources: ["kuwo", "netease"],
+  // netease 优先：kuwo 上游近期非常慢，放后面避免拖死请求
+  defaultSources: ["netease", "kuwo"],
   useBffProxy: true,
   providers: {
     mock: {
@@ -46,9 +51,14 @@ export const defaultProviderConfig: ProviderRuntimeConfig = {
       baseUrl: "https://music-api.gdstudio.xyz/api.php",
       proxyBaseUrl: "/api/music/gdstudio",
     },
+    neteaseCloud: {
+      ...baseProvider,
+      baseUrl: "http://127.0.0.1:3000",
+      proxyBaseUrl: "/api/music/netease",
+    },
     custom: {
       enabled: false,
-      timeoutMs: 12_000,
+      timeoutMs: defaultProviderTimeoutMs,
       baseUrl: "https://example.com/api/music",
       proxyBaseUrl: "/api/music/custom",
     },
@@ -102,11 +112,13 @@ function mergeProviderEntries(input: unknown): Record<ProviderId, ProviderConfig
 
 function mergeProviderEntry(defaultEntry: ProviderConfigEntry, input: unknown): ProviderConfigEntry {
   const raw = isRecord(input) ? input : {};
+  // 旧本地配置可能存了 12s 超时；不允许低于当前默认值，自动升级到 20s
+  const rawTimeout = positiveNumber(raw.timeoutMs) ? raw.timeoutMs : defaultEntry.timeoutMs;
   return {
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaultEntry.enabled,
     baseUrl: nonEmptyString(raw.baseUrl) ? raw.baseUrl : defaultEntry.baseUrl,
     proxyBaseUrl: nonEmptyString(raw.proxyBaseUrl) ? raw.proxyBaseUrl : defaultEntry.proxyBaseUrl,
-    timeoutMs: positiveNumber(raw.timeoutMs) ? raw.timeoutMs : defaultEntry.timeoutMs,
+    timeoutMs: Math.max(rawTimeout, defaultEntry.timeoutMs),
   };
 }
 
@@ -119,6 +131,7 @@ function normalizeProviderIds(input: unknown): ProviderId[] {
 function normalizeProviderId(input: unknown): ProviderId | null {
   if (input === "freemusic") return "freeMusic";
   if (input === "gdstudio") return "gdStudio";
+  if (input === "ncm" || input === "neteasecloud") return "neteaseCloud";
   return isProviderId(input) ? input : null;
 }
 

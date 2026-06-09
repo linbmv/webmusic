@@ -3,6 +3,7 @@ import { CustomProvider } from "@/providers/CustomProvider";
 import { FreeMusicProvider } from "@/providers/FreeMusicProvider";
 import { GdStudioProvider } from "@/providers/GdStudioProvider";
 import { KarpovProvider } from "@/providers/KarpovProvider";
+import { NeteaseCloudProvider } from "@/providers/NeteaseCloudProvider";
 import type { MusicProvider } from "@/providers/MusicProvider";
 import { MockProvider } from "@/providers/MockProvider";
 import type { ProviderId, ProviderRuntimeConfig } from "@/types/music";
@@ -17,6 +18,7 @@ export class ProviderRegistry {
     this.register(new FreeMusicProvider(this.config.providers.freeMusic, this.config.useBffProxy));
     this.register(new KarpovProvider(this.config.providers.karpov, this.config.useBffProxy));
     this.register(new GdStudioProvider(this.config.providers.gdStudio, this.config.useBffProxy));
+    this.register(new NeteaseCloudProvider(this.config.providers.neteaseCloud, this.config.useBffProxy));
     this.register(new CustomProvider(this.config.providers.custom));
   }
 
