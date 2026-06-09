@@ -4,6 +4,9 @@ Vue/Vite music web app with a small Node production server for static files and 
 
 ## Local Development
 
+Requires Node.js 22.5+ because the production server uses the built-in
+`node:sqlite` module.
+
 ```bash
 npm install
 npm run dev

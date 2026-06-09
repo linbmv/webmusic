@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { waitForServer } from "./serverProcess";
 
 let server: ChildProcessWithoutNullStreams | null = null;
 let dataDir = "";
@@ -146,7 +147,7 @@ async function startServer(extraEnv: Record<string, string> = {}, options: { reu
   if (!options.reuseDataDir) dataDir = await mkdtemp(join(tmpdir(), "webmusic-test-"));
   const port = 18_080 + Math.floor(Math.random() * 1000);
   baseUrl = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, ["--experimental-sqlite", "server.mjs"], {
+  const child = spawn(process.execPath, ["--experimental-sqlite", "server.mjs"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -159,7 +160,8 @@ async function startServer(extraEnv: Record<string, string> = {}, options: { reu
     },
     stdio: "pipe",
   });
-  await waitForServer(baseUrl);
+  server = child;
+  await waitForServer(child, baseUrl);
 }
 
 async function register(username: string): Promise<{ cookie: string; user: { id: string } }> {
@@ -186,19 +188,6 @@ async function request<T = unknown>(path: string, options: { method?: string; co
   const body = await response.json();
   if (!response.ok) throw new Error(JSON.stringify(body));
   return body as T;
-}
-
-async function waitForServer(url: string): Promise<void> {
-  const started = Date.now();
-  while (Date.now() - started < 10_000) {
-    try {
-      const response = await fetch(`${url}/api/auth/me`);
-      if (response.ok) return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error("Server did not start");
 }
 
 async function stopServer(): Promise<void> {
