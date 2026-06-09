@@ -1,29 +1,30 @@
 <template>
   <div class="page">
-    <header class="page-header">
-      <div>
-        <p class="page-subtitle">{{ zh.music.playlists }}</p>
-        <h1 class="page-title">{{ title }}</h1>
-      </div>
-      <button class="icon-btn" aria-label="back" @click="router.back()">
+    <header class="detail-topbar">
+      <button class="icon-btn" :aria-label="zh.common.close" @click="router.back()">
         <ChevronLeft :size="20" />
       </button>
+      <span class="topbar-label">{{ zh.music.playlists }}</span>
     </header>
 
     <section class="playlist-hero card card-pad">
-      <div class="hero-summary">
-        <div class="ratio-cover" />
+      <div class="hero-cover" :style="coverStyle">
+        <Music2 v-if="!coverUrl" :size="36" class="hero-cover-icon" />
+      </div>
+      <div class="hero-body">
         <div class="hero-meta">
+          <h2 class="hero-title ellipsis">{{ title }}</h2>
           <p class="muted">{{ detailText }}</p>
         </div>
-      </div>
-      <div class="hero-actions">
-        <button class="primary-btn hero-action" :aria-label="zh.common.play" :title="zh.common.play" :disabled="!rows.length" @click="playAll">
-          <Play :size="18" fill="currentColor" />
-        </button>
-        <button class="secondary-btn hero-action" :aria-label="downloadText" :title="downloadText" :disabled="!rows.length || downloading" @click="downloadAll">
-          <Download :size="18" />
-        </button>
+        <div class="hero-actions">
+          <button class="primary-btn hero-action" :disabled="!rows.length" @click="playAll">
+            <Play :size="18" fill="currentColor" />
+            <span>{{ zh.common.play }}</span>
+          </button>
+          <button class="secondary-btn hero-action icon-only" :aria-label="downloadText" :title="downloadText" :disabled="!rows.length || downloading" @click="downloadAll">
+            <Download :size="18" />
+          </button>
+        </div>
       </div>
     </section>
 
@@ -41,7 +42,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ChevronLeft, Download, Play } from "lucide-vue-next";
+import { ChevronLeft, Download, Music2, Play } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
 import TrackList from "@/components/Track/TrackList.vue";
 import { downloadSongsToServer } from "@/playback/downloadBatch";
@@ -80,6 +81,14 @@ const title = computed(() => {
   return music.playlistDetail?.name ?? zh.music.playlists;
 });
 const detailText = computed(() => `${rows.value.length} ${zh.common.songUnit}`);
+// 在线歌单封面 / 本地歌单首曲封面作为头图；都没有则显示占位图标
+const coverUrl = computed(() => {
+  if (!isLocal.value) return music.playlistDetail?.coverUrl ?? rows.value[0]?.cover ?? "";
+  return localPlaylist.value?.coverUrl ?? rows.value[0]?.cover ?? "";
+});
+const coverStyle = computed(() => (coverUrl.value
+  ? { backgroundImage: `url(${coverUrl.value})`, backgroundSize: "cover", backgroundPosition: "center" }
+  : {}));
 const statusText = computed(() => downloadStatusText.value || providerStatusText.value);
 const emptyText = computed(() => (music.loading ? "..." : zh.music.emptyPlaylist));
 const downloadText = computed(() => (downloading.value ? zh.music.downloading : zh.music.downloadAllHighQuality));
@@ -155,41 +164,84 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 </script>
 
 <style scoped>
-.playlist-hero {
-  display: grid;
-  gap: 12px;
-}
-
-.playlist-hero .ratio-cover {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.hero-summary {
-  display: grid;
-  grid-template-columns: minmax(92px, 36%) minmax(0, 1fr);
-  gap: 12px;
+.detail-topbar {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.topbar-label {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* 头部改为横向布局：固定小封面 + 信息/操作，避免宽屏下封面撑满 */
+.playlist-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hero-cover {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.25), rgba(118, 75, 162, 0.25));
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.hero-cover-icon {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.hero-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .hero-meta {
   min-width: 0;
   display: grid;
-  align-content: center;
+  gap: 4px;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .hero-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 
 .hero-action {
-  width: 42px;
   height: 40px;
   min-height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.hero-action span {
+  white-space: nowrap;
+}
+
+.hero-action.icon-only {
+  width: 40px;
   padding: 0;
-  border-radius: 10px;
 }
 
 .empty {
@@ -198,15 +250,21 @@ const playlistSource = computed(() => (route.query.source === "kuwo" ? "kuwo" : 
 }
 
 @media (max-width: 380px) {
-  .hero-summary {
-    grid-template-columns: 96px minmax(0, 1fr);
-    gap: 10px;
+  .hero-cover {
+    width: 76px;
+    height: 76px;
+  }
+
+  .hero-title {
+    font-size: 17px;
   }
 
   .hero-action {
-    width: 40px;
-    height: 38px;
-    min-height: 38px;
+    padding: 0 14px;
+  }
+
+  .hero-action span {
+    display: none;
   }
 }
 </style>

@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { handleAuth, isRegistrationEnabled } from "./backend/auth.mjs";
+import { handleAuth, isRegistrationEnabled, requireUser } from "./backend/auth.mjs";
 import { handleDownloads } from "./backend/downloads.mjs";
 import { httpError, sendJson, sendText } from "./backend/http.mjs";
 import { handleLibrary } from "./backend/library.mjs";
@@ -38,6 +38,7 @@ export function createMusicServer() {
         return;
       }
       if (matchesProxyPrefix(url.pathname, "/api/music/karpov")) {
+        requireAuthentication(req); // Karpov uses backend secrets, requires auth
         await proxyMusic(url, res, { prefix: "/api/music/karpov", baseUrl: upstreams.karpov, authorization: bearerFromEnv() });
         return;
       }
@@ -76,6 +77,10 @@ async function proxyMusic(url, res, options) {
 function bearerFromEnv() {
   const apiKey = process.env.KARPOV_API_KEY;
   return apiKey ? `Bearer ${apiKey}` : undefined;
+}
+
+function requireAuthentication(req) {
+  requireUser(req); // Throws 401 if not authenticated
 }
 
 function serveStatic(pathname, res) {

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, shallowRef, ref, watch } from "vue";
-import { cloneProviderConfig, defaultProviderConfig, mergeProviderConfig, providerStorageKey } from "@/config/providerConfig";
+import { cloneProviderConfig, defaultProviderConfig, mergeProviderConfig, providerRequiresAccount, providerStorageKey } from "@/config/providerConfig";
 import { createProviderRegistry } from "@/providers/registry";
 import type { ProviderAccountSummary, ProviderHealth, ProviderId, ProviderRuntimeConfig } from "@/types/music";
 
@@ -23,7 +23,14 @@ export const useProviderStore = defineStore("provider", () => {
     { deep: true },
   );
 
-  function switchProvider(providerId: ProviderId): void {
+  function canAccessProvider(providerId: ProviderId, isAuthenticated: boolean): boolean {
+    return !providerRequiresAccount(providerId) || isAuthenticated;
+  }
+
+  function switchProvider(providerId: ProviderId, isAuthenticated = false): void {
+    if (!canAccessProvider(providerId, isAuthenticated)) {
+      throw new Error(`Provider "${providerId}" requires authentication`);
+    }
     const previousProviderId = config.value.activeProviderId;
     const fallbackProviderIds = [previousProviderId, ...config.value.fallbackProviderIds]
       .filter((id) => id !== providerId);
@@ -82,6 +89,7 @@ export const useProviderStore = defineStore("provider", () => {
     healthError,
     accountSummary,
     accountError,
+    canAccessProvider,
     switchProvider,
     setConfig,
     resetConfig,

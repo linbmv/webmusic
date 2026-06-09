@@ -16,7 +16,14 @@
           </button>
         </span>
         <select v-model="selectedProvider" @change="switchProvider">
-          <option v-for="provider in providerStore.providers" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
+          <option
+            v-for="provider in providerStore.providers"
+            :key="provider.id"
+            :value="provider.id"
+            :disabled="!canAccessProvider(provider.id)"
+          >
+            {{ provider.displayName }}{{ canAccessProvider(provider.id) ? '' : ' (需要登录)' }}
+          </option>
         </select>
       </div>
 
@@ -32,10 +39,12 @@
 import { computed, ref, watch } from "vue";
 import { Check, X } from "lucide-vue-next";
 import { zh } from "@/i18n/zh";
+import { useAccountStore } from "@/stores/accountStore";
 import { useProviderStore } from "@/stores/providerStore";
 import { useUiStore } from "@/stores/uiStore";
 import type { ProviderId } from "@/types/music";
 
+const accountStore = useAccountStore();
 const providerStore = useProviderStore();
 const ui = useUiStore();
 const selectedProvider = ref(providerStore.config.activeProviderId);
@@ -56,8 +65,18 @@ watch(
   (providerId) => { selectedProvider.value = providerId; },
 );
 
+function canAccessProvider(providerId: ProviderId): boolean {
+  return providerStore.canAccessProvider(providerId, Boolean(accountStore.user));
+}
+
 function switchProvider(): void {
-  providerStore.switchProvider(selectedProvider.value as ProviderId);
+  const isAuthenticated = Boolean(accountStore.user);
+  try {
+    providerStore.switchProvider(selectedProvider.value as ProviderId, isAuthenticated);
+  } catch (error) {
+    ui.toast(error instanceof Error ? error.message : "切换音乐源失败");
+    selectedProvider.value = providerStore.config.activeProviderId;
+  }
 }
 
 function toggleDarkTheme(event: Event): void {

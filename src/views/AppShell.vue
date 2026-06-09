@@ -96,6 +96,14 @@ function clearSearch(): void {
   align-items: center;
   gap: 6px;
   padding: calc(6px + var(--safe-top)) 8px 6px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 .fm-top-icon {
@@ -106,14 +114,26 @@ function clearSearch(): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid transparent;
   color: var(--text);
+  transition: all var(--transition-fast);
+}
+
+.fm-top-icon:hover {
+  background: var(--glass-hover);
+  border-color: var(--glass-border);
+  transform: translateY(-1px);
 }
 
 .fm-top-icon.router-link-active {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px var(--primary-glow);
 }
 
 .fm-top-icon :deep(svg) {
@@ -130,8 +150,18 @@ function clearSearch(): void {
   align-items: center;
   gap: 6px;
   padding: 0 8px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  transition: all var(--transition-fast);
+}
+
+.fm-global-search:focus-within {
+  background: var(--glass-hover);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .fm-search-icon {
@@ -139,6 +169,11 @@ function clearSearch(): void {
   height: 18px;
   flex: 0 0 18px;
   color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.fm-global-search:focus-within .fm-search-icon {
+  color: var(--primary);
 }
 
 .fm-global-search input {
@@ -152,6 +187,10 @@ function clearSearch(): void {
   font-size: 13px;
 }
 
+.fm-global-search input::placeholder {
+  color: var(--text-muted);
+}
+
 .fm-search-clear {
   width: 20px;
   height: 20px;
@@ -159,8 +198,17 @@ function clearSearch(): void {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.16);
-  color: #98989d;
+  background: var(--glass-bg);
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.fm-search-clear:hover {
+  background: var(--glass-hover);
+  border-color: var(--glass-border);
+  color: var(--text);
+  transform: scale(1.1);
 }
 
 .fm-search-clear :deep(svg) {

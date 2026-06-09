@@ -110,6 +110,29 @@ export function createBrowserAudioElement(): HTMLAudioElement {
 export function prepareAudioElement(audio: HTMLAudioElement): void {
   audio.preload = "auto";
   audio.setAttribute("playsinline", "true");
+
+  // iOS 后台播放关键配置
+  // 设置 audio 为媒体播放器，允许后台和锁屏播放
+  audio.setAttribute("x-webkit-airplay", "allow");
+
+  // 确保音频会话被正确初始化（iOS 需要）
+  // 这会让 iOS 识别这是一个媒体播放应用
+  if ('mediaSession' in navigator) {
+    // MediaSession API 会自动处理音频会话类型
+    // 但我们需要确保在第一次播放前就初始化
+    try {
+      // 设置一个默认的 metadata，确保 iOS 将其识别为音频播放器
+      if (!navigator.mediaSession.metadata) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'Loading...',
+          artist: '',
+          album: '',
+        });
+      }
+    } catch {
+      // 某些浏览器可能不支持 MediaMetadata
+    }
+  }
 }
 
 export function disposeAudio(audio: HTMLAudioElement): void {

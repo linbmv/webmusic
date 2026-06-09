@@ -89,9 +89,27 @@ function onRenamePlaylist(): void {
 async function onDeletePlaylist(): Promise<void> {
   if (ui.actionSheet?.type !== "playlistActions") return;
   const { playlistId, currentName } = ui.actionSheet;
+
+  // 删除前保存完整播放列表数据用于撤销
+  const playlistSnapshot = library.playlists.find((p) => p.id === playlistId);
+  if (!playlistSnapshot) return;
+
+  const trackIds = [...playlistSnapshot.trackIds];
+  const tracks = library.listPlaylistTracks(playlistId);
+
   ui.closeActionSheet();
   await library.deletePlaylist(playlistId);
-  ui.toast(`${zh.music.deleted}: ${currentName}`);
+
+  ui.toast(`${zh.music.deleted}: ${currentName}`, {
+    actionLabel: zh.music.undo,
+    action: async () => {
+      // 重建播放列表：先创建，再批量添加曲目
+      const restoredPlaylist = await library.createPlaylist(currentName);
+      if (tracks.length > 0) {
+        await library.addTracksToPlaylist(restoredPlaylist.id, tracks);
+      }
+    },
+  });
 }
 
 function onAddToPlaylist(): void {

@@ -4,6 +4,16 @@ const providerIds = ["mock", "freeMusic", "karpov", "gdStudio", "custom"] as con
 const musicSourceIds = ["netease", "kuwo", "qqmusic", "kugou", "joox"] as const satisfies readonly MusicSourceId[];
 const audioQualities = ["128kmp3", "320kmp3", "flac"] as const satisfies readonly AudioQuality[];
 
+// Public providers: accessible without authentication
+export const publicProviderIds: readonly ProviderId[] = ["mock", "freeMusic", "gdStudio"];
+
+// Account-required providers: require user login (use backend secrets or account resources)
+export const accountRequiredProviderIds: readonly ProviderId[] = ["karpov", "custom"];
+
+export function providerRequiresAccount(providerId: ProviderId): boolean {
+  return accountRequiredProviderIds.includes(providerId);
+}
+
 const baseProvider = {
   enabled: true,
   timeoutMs: 12_000,
