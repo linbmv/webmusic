@@ -97,7 +97,7 @@ function toStoredSong(song: NormalizedSong): StoredSong {
 function normalizeSnapshot(value: unknown): PlayerSnapshot | null {
   if (!isObject(value)) return null;
   const mode = playbackModes.includes(value.mode as PlaybackMode) ? value.mode as PlaybackMode : "list";
-  const quality = audioQualities.includes(value.quality as AudioQuality) ? value.quality as AudioQuality : "flac";
+  const quality = audioQualities.includes(value.quality as AudioQuality) ? value.quality as AudioQuality : "320kmp3";
   const queue = Array.isArray(value.queue) ? value.queue.map(normalizeSong).filter((song): song is NormalizedSong => Boolean(song)) : [];
   const limitedQueue = queue.slice(0, maxStoredTracks);
   return {

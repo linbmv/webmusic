@@ -23,7 +23,8 @@ export const usePlayerStore = defineStore("player", () => {
   const queue = ref(new PlaybackQueue());
   const currentSong = ref<NormalizedSong | null>(null);
   const state = ref<PlayerState>("idle");
-  const quality = ref<AudioQuality>(snapshot?.quality ?? "flac");
+  // 播放默认 320k：比 flac 解析/缓冲更快；下载仍用 flac 最高品质
+  const quality = ref<AudioQuality>(snapshot?.quality ?? "320kmp3");
   const mode = ref<PlaybackMode>(snapshot?.mode ?? "list");
   const lyric = ref<ParsedLyric | null>(null);
   const currentTimeMs = ref(0);
