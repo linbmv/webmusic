@@ -1,8 +1,8 @@
 import type { MusicProvider } from "@/providers/MusicProvider";
-import { AudioPreloadCache, createBrowserAudioElement, disposeAudio, prepareAudioElement, type AudioElementFactory } from "@/playback/audioPreloadCache";
+import { AudioPreloadCache, createBrowserAudioElement, disposeAudio, prepareAudioElement, type AudioElementFactory, type CachedAudio } from "@/playback/audioPreloadCache";
 import { PlaybackFallbackService } from "@/playback/fallback";
 import { PlaybackQueue } from "@/playback/PlaybackQueue";
-import type { AudioQuality, AudioUrlResult, NormalizedSong, PlaybackMode } from "@/types/music";
+import type { AudioQuality, NormalizedSong, PlaybackMode } from "@/types/music";
 
 type EngineState = "idle" | "loading" | "playing" | "paused" | "error";
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: "release", listener: () => void) => void };
@@ -88,6 +88,7 @@ export class AudioEngine {
   }
 
   replaceQueue(items: NormalizedSong[], cursor = 0): void {
+    this.preloads.clear();
     this.queue = this.queue.replace(items, cursor);
     this.currentSong = this.queue.current;
   }
@@ -103,9 +104,12 @@ export class AudioEngine {
     this.currentQuality = quality;
     this.setState("loading");
     try {
-      const resolved = await this.resolvePlayableUrl(song, quality);
-      if (op !== this.operationId) return;
-      this.audio.src = resolved.url;
+      const resolved = await this.resolvePlayableAudio(song, quality);
+      if (op !== this.operationId) {
+        disposeResolvedAudio(resolved);
+        return;
+      }
+      this.loadPlaybackSource(resolved);
       await this.requestWakeLock();
       if (!await this.tryPlayCurrentAudio(op, song)) return;
       this.preResolveNeighbors(quality);
@@ -194,13 +198,15 @@ export class AudioEngine {
     this.trackListeners.forEach((listener) => listener(this.currentSong as NormalizedSong, this.queue.index));
   }
 
-  private async resolvePlayableUrl(song: NormalizedSong, quality: AudioQuality): Promise<AudioUrlResult> {
+  private async resolvePlayableAudio(song: NormalizedSong, quality: AudioQuality): Promise<CachedAudio> {
     const cached = this.preloads.take(song, quality);
-    if (cached) return cached.result;
-    return this.fallback.resolvePlayableUrl(song, quality);
+    if (cached) return cached;
+    const result = await this.fallback.resolvePlayableUrl(song, quality);
+    return { result, audio: null };
   }
 
   private preResolveNeighbors(quality: AudioQuality): void {
+    const op = this.operationId;
     const candidates = [this.queue.peekNext(), this.queue.peekPrevious(), ...this.upcomingSongs(PRELOAD_AHEAD)];
     const seen = new Set<string>();
     for (const song of candidates) {
@@ -209,7 +215,9 @@ export class AudioEngine {
       if (seen.has(key) || this.preloads.has(song, quality)) continue;
       seen.add(key);
       void this.fallback.resolvePlayableUrl(song, quality)
-        .then((result) => this.preloads.store(song, quality, result))
+        .then((result) => {
+          if (op === this.operationId) this.preloads.store(song, quality, result);
+        })
         .catch(() => undefined);
     }
   }
@@ -242,8 +250,7 @@ export class AudioEngine {
     if (!cached) return false;
     this.queue = advanced;
     this.currentSong = song;
-    if (cached.audio) this.replaceAudioElement(cached.audio);
-    else this.audio.src = cached.result.url;
+    this.loadPlaybackSource(cached);
     const playPromise = this.audio.play();
     this.setState("playing");
     this.emitTrackChange();
@@ -260,6 +267,22 @@ export class AudioEngine {
     this.audio = nextAudio;
     prepareAudioElement(this.audio);
     this.audio.loop = this.currentMode === "single";
+    this.bindAudioEvents(this.audio);
+  }
+
+  private loadPlaybackSource(source: CachedAudio): void {
+    if (source.audio) {
+      this.replaceAudioElement(source.audio);
+      return;
+    }
+    this.disposeCurrentSource();
+    this.audio.src = source.result.url;
+  }
+
+  private disposeCurrentSource(): void {
+    if (!this.audio.src && !this.audio.currentSrc) return;
+    this.unbindAudioEvents(this.audio);
+    disposeAudio(this.audio);
     this.bindAudioEvents(this.audio);
   }
 
@@ -309,4 +332,8 @@ export class AudioEngine {
       // Wake Lock release can fail after the browser has already revoked it.
     }
   }
+}
+
+function disposeResolvedAudio(source: CachedAudio): void {
+  if (source.audio) disposeAudio(source.audio);
 }

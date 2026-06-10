@@ -142,6 +142,11 @@ export function disposeAudio(audio: HTMLAudioElement): void {
     // The media element may already be detached or unavailable in test DOMs.
   }
   audio.removeAttribute("src");
+  try {
+    audio.load();
+  } catch {
+    // Some test DOMs and detached iOS media elements can reject load().
+  }
 }
 
 function oldestCacheKey(entries: Map<string, CacheEntry>): string | null {
