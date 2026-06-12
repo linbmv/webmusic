@@ -129,12 +129,6 @@ export const useLibraryStore = defineStore("library", () => {
     playlists.value = await repository.listPlaylists();
     songs.value = await repository.listLibrarySongs();
     notifyLibraryChanged();
-    try {
-      const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
-      useDownloadQueueStore().ensureDownloaded(song);
-    } catch (err) {
-      console.warn("Auto-download trigger failed:", err);
-    }
   }
 
   async function addTracksToPlaylist(playlistId: string, items: NormalizedSong[]): Promise<void> {
@@ -143,13 +137,6 @@ export const useLibraryStore = defineStore("library", () => {
     playlists.value = await repository.listPlaylists();
     songs.value = await repository.listLibrarySongs();
     notifyLibraryChanged();
-    try {
-      const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
-      const queue = useDownloadQueueStore();
-      items.forEach((song) => queue.ensureDownloaded(song));
-    } catch (err) {
-      console.warn("Batch download trigger failed:", err);
-    }
   }
 
   async function removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {

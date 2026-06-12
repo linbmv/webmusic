@@ -89,5 +89,5 @@ export const useDownloadQueueStore = defineStore("downloadQueue", () => {
     await account.refreshDownloads();
   }
 
-  return { downloadingIds, ensureDownloaded, ensureAllPlaylistSongs, removeDownloadsForSongs };
+  return { downloadingIds, ensureDownloaded, ensureAllPlaylistSongs, removeDownloadsForSongs, manualDownload: ensureDownloaded };
 });

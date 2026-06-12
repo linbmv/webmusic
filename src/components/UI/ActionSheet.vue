@@ -21,7 +21,7 @@
 
     <template v-else-if="isTrackActions">
       <button class="action-row" @click="onAddToPlaylist"><Plus :size="18" />{{ zh.music.addToPlaylist }}</button>
-      <button class="action-row" @click="onDownload"><Download :size="18" />{{ zh.music.download }}</button>
+      <button class="action-row" @click="onDownload"><Download :size="18" />{{ downloadLabel }}</button>
       <button v-if="canRemoveFromPlaylist" class="action-row danger" @click="onRemoveFromPlaylist">
         <Trash2 :size="18" />{{ zh.music.removeFromPlaylist }}
       </button>
@@ -39,10 +39,12 @@ import { zh } from "@/i18n/zh";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
+import { useAccountStore } from "@/stores/accountStore";
 
 const ui = useUiStore();
 const library = useLibraryStore();
 const player = usePlayerStore();
+const account = useAccountStore();
 const tempName = ref("");
 const nameInput = ref<HTMLInputElement | null>(null);
 
@@ -52,6 +54,7 @@ const isPlaylistActions = computed(() => ui.actionSheet?.type === "playlistActio
 const isTrackActions = computed(() => ui.actionSheet?.type === "trackActions");
 const canRemoveFromPlaylist = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.playlistId));
 const canRemoveFromFavorites = computed(() => ui.actionSheet?.type === "trackActions" && Boolean(ui.actionSheet.isFavorites));
+const downloadLabel = computed(() => account.user ? "下载到服务器" : zh.music.download);
 const title = computed(() => {
   if (isRename.value) return zh.music.renamePlaylist;
   if (isPlaylistActions.value) return zh.music.playlistActions;

@@ -108,14 +108,6 @@ export const useAccountStore = defineStore("account", () => {
     } catch (err) {
       console.warn("Playback sync failed:", err);
     }
-    try {
-      const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
-      const library = useLibraryStore();
-      await library.load();
-      useDownloadQueueStore().ensureAllPlaylistSongs(library.songs);
-    } catch (err) {
-      console.warn("Batch download trigger failed:", err);
-    }
   }
 
   async function syncLibraryAfterAuth(): Promise<void> {

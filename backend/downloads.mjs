@@ -6,6 +6,7 @@ import { downloadDir, db, nowMs } from "./storage.mjs";
 import { fetchDownloadSource, writeLimitedResponse } from "./downloadSafety.mjs";
 import { httpError, readJson, requireMethod, sendJson } from "./http.mjs";
 import { requireUser } from "./auth.mjs";
+import { findOrCreateSharedAsset, removeAssetReference } from "./sharedAssets.mjs";
 
 const allowedProviderIds = new Set(["mock", "freeMusic", "karpov", "gdStudio", "custom"]);
 const allowedSources = new Set(["netease", "kuwo", "qqmusic", "kugou", "joox"]);
@@ -33,26 +34,21 @@ async function acquireDownloadLock(userId) {
 
 const getDownloads = db.prepare(`
 SELECT user_downloads.id, user_downloads.song_payload, user_downloads.quality, user_downloads.created_at,
-       audio_assets.id AS asset_id, audio_assets.file_path, audio_assets.size_bytes, audio_assets.mime_type
-FROM user_downloads JOIN audio_assets ON audio_assets.id = user_downloads.asset_id
+       shared_audio_assets.id AS asset_id, shared_audio_assets.file_path, shared_audio_assets.size_bytes, shared_audio_assets.mime_type
+FROM user_downloads JOIN shared_audio_assets ON shared_audio_assets.id = user_downloads.shared_asset_id
 WHERE user_downloads.user_id = ?
 ORDER BY user_downloads.created_at DESC
 `);
 const getDownload = db.prepare(`
 SELECT user_downloads.id, user_downloads.song_payload, user_downloads.quality,
-       audio_assets.id AS asset_id, audio_assets.file_path, audio_assets.mime_type, audio_assets.size_bytes
-FROM user_downloads JOIN audio_assets ON audio_assets.id = user_downloads.asset_id
+       shared_audio_assets.id AS asset_id, shared_audio_assets.file_path, shared_audio_assets.mime_type, shared_audio_assets.size_bytes
+FROM user_downloads JOIN shared_audio_assets ON shared_audio_assets.id = user_downloads.shared_asset_id
 WHERE user_downloads.user_id = ? AND user_downloads.id = ?
 `);
-const findAsset = db.prepare("SELECT id, file_path, size_bytes, mime_type FROM audio_assets WHERE user_id = ? AND provider_id = ? AND source = ? AND provider_song_id = ? AND quality = ?");
-const insertAsset = db.prepare("INSERT INTO audio_assets (id, user_id, provider_id, source, provider_song_id, quality, file_path, mime_type, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-const updateAsset = db.prepare("UPDATE audio_assets SET file_path = ?, mime_type = ?, size_bytes = ?, created_at = ? WHERE id = ?");
-const insertDownload = db.prepare("INSERT OR IGNORE INTO user_downloads (id, user_id, asset_id, song_payload, quality, created_at) VALUES (?, ?, ?, ?, ?, ?)");
-const findUserDownload = db.prepare("SELECT id FROM user_downloads WHERE user_id = ? AND asset_id = ?");
+const insertDownload = db.prepare("INSERT OR IGNORE INTO user_downloads (id, user_id, shared_asset_id, song_payload, quality, created_at) VALUES (?, ?, ?, ?, ?, ?)");
+const findUserDownload = db.prepare("SELECT id, shared_asset_id FROM user_downloads WHERE user_id = ? AND shared_asset_id = ?");
 const deleteDownload = db.prepare("DELETE FROM user_downloads WHERE user_id = ? AND id = ?");
-const countAssetReferences = db.prepare("SELECT COUNT(*) AS ref_count FROM user_downloads WHERE asset_id = ?");
-const deleteAsset = db.prepare("DELETE FROM audio_assets WHERE id = ?");
-const getAssetFilePath = db.prepare("SELECT file_path FROM audio_assets WHERE id = ?");
+const getDownloadAsset = db.prepare("SELECT shared_asset_id FROM user_downloads WHERE user_id = ? AND id = ?");
 
 export async function handleDownloads(req, res, url) {
   if (!url.pathname.startsWith("/api/me/downloads")) return false;
@@ -84,24 +80,60 @@ async function createDownload(req, res, userId) {
   const releaseLock = await acquireDownloadLock(userId);
   try {
     const currentTotal = totalDownloadedBytes(userId);
-    const existing = findAssetForSong(userId, song, quality);
-    const existingDownloadId = existing ? findUserDownload.get(userId, String(existing.id))?.id : null;
-    const replacedBytes = existingDownloadId ? Number(existing.size_bytes ?? 0) : 0;
-    const asset = await ensureAsset({
-      userId,
-      song,
-      quality,
-      audioUrl,
-      existing,
-      limitBytes: maxUserDownloadBytes - currentTotal + replacedBytes,
-    });
-    if (!existingDownloadId && currentTotal + asset.sizeBytes > maxUserDownloadBytes) {
-      await removeAssetIfUnreferenced(asset.id);
-      throw httpError(507, "User download quota exceeded");
+
+    // 检查是否已存在该歌曲的下载记录（通过 provider 信息查找）
+    const existingSharedAsset = db.prepare(`
+      SELECT sa.id FROM shared_audio_assets sa
+      WHERE sa.provider_id = ? AND sa.source = ? AND sa.provider_song_id = ? AND sa.quality = ?
+    `).get(song.provider.providerId, song.provider.source, song.providerSongId, quality);
+
+    if (existingSharedAsset) {
+      const existingDownload = findUserDownload.get(userId, existingSharedAsset.id);
+      if (existingDownload) {
+        // 用户已下载此歌曲，返回现有记录
+        const download = getDownload.get(userId, existingDownload.id);
+        sendJson(res, 200, { download: toDownloadItem(download) });
+        return true;
+      }
+      // 共享资产已存在，直接创建用户引用（不占配额，因为文件已存在）
+      const downloadId = randomUUID();
+      insertDownload.run(downloadId, userId, existingSharedAsset.id, JSON.stringify(song), quality, nowMs());
+      const download = getDownload.get(userId, downloadId);
+      sendJson(res, 201, { download: toDownloadItem(download) });
+      return true;
     }
-    insertDownload.run(randomUUID(), userId, asset.id, JSON.stringify(song), quality, nowMs());
-    const downloadId = existingDownloadId ?? findUserDownload.get(userId, asset.id)?.id;
-    sendJson(res, 201, { download: { id: String(downloadId), song, quality, sizeBytes: asset.sizeBytes, streamUrl: `/api/me/downloads/${downloadId}/stream` } });
+
+    // 新下载：下载到临时文件 → 计算哈希 → 移动到全局目录
+    const limitBytes = maxUserDownloadBytes - currentTotal;
+    if (limitBytes <= 0) throw httpError(507, "User download quota exceeded");
+
+    const tempDir = join(downloadDir, "temp");
+    mkdirSync(tempDir, { recursive: true });
+    const tempFilePath = join(tempDir, `${randomUUID()}.tmp`);
+
+    const response = await fetchDownloadSource(audioUrl);
+    await writeLimitedResponse(response, tempFilePath, { limitBytes, errorStatus: 507, errorMessage: "User download quota exceeded" });
+
+    const fileStat = await stat(tempFilePath);
+    const mimeType = response.headers.get("content-type") ?? mimeFromExt(extensionFromUrl(audioUrl, quality));
+
+    // 查找或创建共享资产（包含哈希去重）
+    const { id: sharedAssetId, file_path: finalPath, isNew } = await findOrCreateSharedAsset({
+      providerId: song.provider.providerId,
+      source: song.provider.source,
+      providerSongId: song.providerSongId,
+      quality,
+      tempFilePath,
+      mimeType,
+      sizeBytes: fileStat.size,
+    });
+
+    // 创建用户下载记录
+    const downloadId = randomUUID();
+    insertDownload.run(downloadId, userId, sharedAssetId, JSON.stringify(song), quality, nowMs());
+
+    const download = getDownload.get(userId, downloadId);
+    sendJson(res, 201, { download: toDownloadItem(download) });
     return true;
   } finally {
     releaseLock();
@@ -112,7 +144,7 @@ function streamDownload(res, userId, downloadId, req) {
   const row = getDownload.get(userId, downloadId);
   if (!row) throw httpError(404, "Download not found");
   const filePath = resolve(String(row.file_path));
-  if (!isInsideUserDownloads(userId, filePath) || !existsSync(filePath)) throw httpError(404, "Downloaded file missing");
+  if (!existsSync(filePath)) throw httpError(404, "Downloaded file missing");
   const song = JSON.parse(String(row.song_payload));
   const fileSize = Number(row.size_bytes ?? 0);
   const rangeHeader = String(req.headers["range"] ?? "");
@@ -154,56 +186,8 @@ function streamDownload(res, userId, downloadId, req) {
   return true;
 }
 
-async function removeDownload(res, userId, downloadId) {
-  const row = getDownload.get(userId, downloadId);
-  if (!row) {
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
-  const assetId = String(row.asset_id ?? "");
-  deleteDownload.run(userId, downloadId);
-  await removeAssetIfUnreferenced(assetId);
-  sendJson(res, 200, { ok: true });
-  return true;
-}
-
-async function ensureAsset(options) {
-  const { userId, song, quality, audioUrl } = options;
-  const existing = options.existing ?? findAssetForSong(userId, song, quality);
-  if (existing && existsSync(String(existing.file_path))) return normalizeAsset(existing);
-  const assetId = existing ? String(existing.id) : randomUUID();
-  const ext = extensionFromUrl(audioUrl, quality);
-  const dir = join(userDownloadRoot(userId), song.provider.providerId, song.provider.source, sanitizeSegment(song.providerSongId));
-  mkdirSync(dir, { recursive: true });
-  const filePath = join(dir, `${quality}.${ext}`);
-  if (!isInsideUserDownloads(userId, filePath)) throw httpError(400, "Invalid song identity");
-  const response = await fetchDownloadSource(audioUrl);
-  await writeLimitedResponse(response, filePath, downloadQuotaLimit(options.limitBytes));
-  const fileStat = await stat(filePath);
-  const mimeType = response.headers.get("content-type") ?? mimeFromExt(ext);
-  if (existing) updateAsset.run(filePath, mimeType, fileStat.size, nowMs(), assetId);
-  else insertAsset.run(assetId, userId, song.provider.providerId, song.provider.source, song.providerSongId, quality, filePath, mimeType, fileStat.size, nowMs());
-  return { id: assetId, filePath, sizeBytes: fileStat.size, mimeType };
-}
-
 function totalDownloadedBytes(userId) {
   return getDownloads.all(userId).reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0);
-}
-
-function findAssetForSong(userId, song, quality) {
-  return findAsset.get(userId, song.provider.providerId, song.provider.source, song.providerSongId, quality);
-}
-
-function downloadQuotaLimit(limitBytes) {
-  return { limitBytes, errorStatus: 507, errorMessage: "User download quota exceeded" };
-}
-
-async function removeAssetIfUnreferenced(assetId) {
-  const refCount = Number(countAssetReferences.get(assetId)?.ref_count ?? 0);
-  if (refCount > 0) return;
-  const assetRow = getAssetFilePath.get(assetId);
-  if (assetRow) await rm(String(assetRow.file_path), { force: true }).catch(() => {});
-  deleteAsset.run(assetId);
 }
 
 function normalizeSong(input) {
@@ -252,16 +236,6 @@ function stringValue(value) {
 }
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function userDownloadRoot(userId) {
-  return join(downloadDir, sanitizeSegment(userId));
-}
-
-function isInsideUserDownloads(userId, filePath) {
-  const root = resolve(userDownloadRoot(userId));
-  const child = resolve(filePath);
-  const rel = relative(root, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function extensionFromUrl(url, quality) {

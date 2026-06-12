@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS library_snapshots (
   updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS audio_assets (
+CREATE TABLE IF NOT EXISTS shared_audio_assets (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_hash TEXT NOT NULL,
   provider_id TEXT NOT NULL,
   source TEXT NOT NULL,
   provider_song_id TEXT NOT NULL,
@@ -47,18 +47,20 @@ CREATE TABLE IF NOT EXISTS audio_assets (
   file_path TEXT NOT NULL,
   mime_type TEXT,
   size_bytes INTEGER NOT NULL DEFAULT 0,
+  ref_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  UNIQUE(user_id, provider_id, source, provider_song_id, quality)
+  UNIQUE(content_hash),
+  UNIQUE(provider_id, source, provider_song_id, quality)
 );
 
 CREATE TABLE IF NOT EXISTS user_downloads (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  asset_id TEXT NOT NULL REFERENCES audio_assets(id) ON DELETE CASCADE,
+  shared_asset_id TEXT NOT NULL REFERENCES shared_audio_assets(id) ON DELETE CASCADE,
   song_payload TEXT NOT NULL,
   quality TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  UNIQUE(user_id, asset_id)
+  UNIQUE(user_id, shared_asset_id)
 );
 
 CREATE TABLE IF NOT EXISTS playback_state (
@@ -66,9 +68,12 @@ CREATE TABLE IF NOT EXISTS playback_state (
   payload TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
-`);
 
-addColumnIfMissing("audio_assets", "user_id", "TEXT");
+CREATE INDEX IF NOT EXISTS idx_user_downloads_user ON user_downloads(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_downloads_asset ON user_downloads(shared_asset_id);
+CREATE INDEX IF NOT EXISTS idx_shared_assets_hash ON shared_audio_assets(content_hash);
+CREATE INDEX IF NOT EXISTS idx_shared_assets_ref ON shared_audio_assets(ref_count);
+`);
 
 function addColumnIfMissing(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((row) => String(row.name));
