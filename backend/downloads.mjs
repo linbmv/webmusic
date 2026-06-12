@@ -9,7 +9,7 @@ import { requireUser } from "./auth.mjs";
 
 const allowedProviderIds = new Set(["mock", "freeMusic", "karpov", "gdStudio", "custom"]);
 const allowedSources = new Set(["netease", "kuwo", "qqmusic", "kugou", "joox"]);
-const defaultMaxUserBytes = 2_000_000_000; // 2GB
+const defaultMaxUserBytes = 5_000_000_000; // 5GB
 const maxUserDownloadBytes = positiveInt(process.env.MAX_USER_DOWNLOAD_BYTES, defaultMaxUserBytes);
 
 // 用户级下载锁：防止并发下载突破配额
