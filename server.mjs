@@ -16,11 +16,13 @@ const HTML_CACHE_CONTROL = "no-cache";
 const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const STATIC_CACHE_CONTROL = "public, max-age=3600";
 const neteaseApiBase = process.env.NETEASE_API_BASE ?? "http://127.0.0.1:3000";
+const cocoApiBase = process.env.COCO_API_BASE ?? "http://127.0.0.1:5000";
 const upstreams = {
   free: "https://ios.25pan.com/api/v1/freemusic",
   karpov: "https://gateway.karpov.cn",
   gdstudio: "https://music-api.gdstudio.xyz/api.php",
   netease: neteaseApiBase,
+  coco: cocoApiBase,
 };
 const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -55,6 +57,10 @@ export function createMusicServer() {
         await proxyMusic(url, res, { prefix: "/api/music/netease", baseUrl: upstreams.netease });
         return;
       }
+      if (matchesProxyPrefix(url.pathname, "/api/music/coco")) {
+        await proxyMusic(url, res, { prefix: "/api/music/coco", baseUrl: upstreams.coco });
+        return;
+      }
       serveStatic(url.pathname, res);
     } catch (error) {
       const status = Number(error?.status ?? 502);
@@ -75,6 +81,11 @@ async function proxyMusic(url, res, options) {
     accept: "application/json,text/plain,*/*",
     "user-agent": "music-clone-bff/0.1",
   };
+  // ios.25pan.com 需要 Referer 通过白名单检查
+  if (upstreamUrl.hostname.includes("25pan.com")) {
+    headers.referer = "https://ios.25pan.com/";
+    headers.origin = "https://ios.25pan.com";
+  }
   // 带密钥的上游（Karpov）不缓存，避免缓存鉴权相关响应
   const cacheable = !options.authorization;
   const key = cacheable ? cacheKey("GET", upstreamUrl.toString()) : null;
