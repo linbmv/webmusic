@@ -1,11 +1,11 @@
 import type { AudioQuality, LibrarySettings, MusicSourceId, ProviderConfigEntry, ProviderId, ProviderRuntimeConfig } from "@/types/music";
 
-const providerIds = ["mock", "freeMusic", "karpov", "gdStudio", "neteaseCloud", "custom"] as const satisfies readonly ProviderId[];
+const providerIds = ["mock", "freeMusic", "karpov", "gdStudio", "neteaseCloud", "coco", "custom"] as const satisfies readonly ProviderId[];
 const musicSourceIds = ["netease", "kuwo", "qqmusic", "kugou", "joox"] as const satisfies readonly MusicSourceId[];
 const audioQualities = ["128kmp3", "320kmp3", "flac"] as const satisfies readonly AudioQuality[];
 
 // Public providers: accessible without authentication
-export const publicProviderIds: readonly ProviderId[] = ["mock", "freeMusic", "gdStudio", "neteaseCloud"];
+export const publicProviderIds: readonly ProviderId[] = ["mock", "freeMusic", "gdStudio", "neteaseCloud", "coco"];
 
 // Account-required providers: require user login (use backend secrets or account resources)
 export const accountRequiredProviderIds: readonly ProviderId[] = ["karpov", "custom"];
@@ -23,9 +23,9 @@ const baseProvider = {
 };
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
-  activeProviderId: "freeMusic",
-  // FreeMusic 主源 → GD Studio 单曲 fallback → 自建网易云兜底
-  fallbackProviderIds: ["gdStudio", "neteaseCloud"],
+  activeProviderId: "coco",
+  // Coco 主源 → FreeMusic → GD Studio fallback → 自建网易云兜底
+  fallbackProviderIds: ["freeMusic", "gdStudio", "neteaseCloud"],
   defaultQuality: "320kmp3",
   // netease 优先：kuwo 上游近期非常慢，放后面避免拖死请求
   defaultSources: ["netease", "kuwo"],
@@ -55,6 +55,11 @@ export const defaultProviderConfig: ProviderRuntimeConfig = {
       ...baseProvider,
       baseUrl: "http://127.0.0.1:3000",
       proxyBaseUrl: "/api/music/netease",
+    },
+    coco: {
+      ...baseProvider,
+      baseUrl: "http://127.0.0.1:5000",
+      proxyBaseUrl: "/api/music/coco",
     },
     custom: {
       enabled: false,

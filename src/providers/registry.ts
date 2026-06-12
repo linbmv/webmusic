@@ -4,6 +4,7 @@ import { FreeMusicProvider } from "@/providers/FreeMusicProvider";
 import { GdStudioProvider } from "@/providers/GdStudioProvider";
 import { KarpovProvider } from "@/providers/KarpovProvider";
 import { NeteaseCloudProvider } from "@/providers/NeteaseCloudProvider";
+import { CocoProvider } from "@/providers/CocoProvider";
 import type { MusicProvider } from "@/providers/MusicProvider";
 import { MockProvider } from "@/providers/MockProvider";
 import type { ProviderId, ProviderRuntimeConfig } from "@/types/music";
@@ -19,6 +20,7 @@ export class ProviderRegistry {
     this.register(new KarpovProvider(this.config.providers.karpov, this.config.useBffProxy));
     this.register(new GdStudioProvider(this.config.providers.gdStudio, this.config.useBffProxy));
     this.register(new NeteaseCloudProvider(this.config.providers.neteaseCloud, this.config.useBffProxy));
+    this.register(new CocoProvider(this.config.providers.coco ?? { baseUrl: "http://localhost:5000", timeoutMs: 30000, enabled: true }, this.config.useBffProxy));
     this.register(new CustomProvider(this.config.providers.custom));
   }
 
