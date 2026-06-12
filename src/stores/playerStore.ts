@@ -11,8 +11,10 @@ import { useLibraryStore } from "@/stores/libraryStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useProviderStore } from "@/stores/providerStore";
 import type { AudioQuality, LyricLine, NormalizedSong, ParsedLyric, PlaybackMode } from "@/types/music";
+import * as accountApi from "@/services/accountApi";
 
 type PlayerState = "idle" | "loading" | "playing" | "paused" | "error";
+const CLOUD_SYNC_THROTTLE_MS = 10_000;
 
 export const usePlayerStore = defineStore("player", () => {
   const snapshot = loadPlayerSnapshot();
@@ -37,6 +39,10 @@ export const usePlayerStore = defineStore("player", () => {
   const queueItems = computed(() => queue.value.tracks);
   const queueIndex = computed(() => queue.value.index);
   const saveProgressSnapshot = createProgressSnapshotSaver();
+  const downloadsMap = computed(() => new Map(accountStore.downloads.map((d) => [d.song.stableId, d])));
+
+  let lastCloudSyncAt = 0;
+  let cloudSyncPending = false;
 
   bindEngine(engine.value);
   engine.value.setMode(mode.value);
@@ -45,6 +51,11 @@ export const usePlayerStore = defineStore("player", () => {
 
   function createEngine(): AudioEngine {
     return new AudioEngine([providerStore.activeProvider, ...providerStore.registry.getFallbacks()]);
+  }
+
+  function withDirectUrl(song: NormalizedSong): NormalizedSong {
+    const download = downloadsMap.value.get(song.stableId);
+    return download ? { ...song, directUrl: download.streamUrl } : song;
   }
 
   function bindEngine(target: AudioEngine): void {
@@ -98,7 +109,7 @@ export const usePlayerStore = defineStore("player", () => {
     durationMs.value = song.durationMs ?? 0;
     persistPlaybackState();
     try {
-      await engine.value.playSong(song, quality.value);
+      await engine.value.playSong(withDirectUrl(song), quality.value);
       state.value = engine.value.getState();
     } catch {
       state.value = "error";
@@ -108,7 +119,8 @@ export const usePlayerStore = defineStore("player", () => {
   async function playQueue(items: NormalizedSong[], cursor = 0): Promise<void> {
     queue.value = queue.value.replace(items, cursor);
     currentSong.value = queue.value.current;
-    engine.value.replaceQueue(items, cursor);
+    const itemsWithDirectUrl = items.map(withDirectUrl);
+    engine.value.replaceQueue(itemsWithDirectUrl, cursor);
     currentTimeMs.value = 0;
     durationMs.value = currentSong.value?.durationMs ?? 0;
     persistPlaybackState();
@@ -124,6 +136,9 @@ export const usePlayerStore = defineStore("player", () => {
     engine.value.pause();
     state.value = "paused";
     persistPlaybackState();
+    if (accountStore.user) {
+      accountApi.savePlayback(playerSnapshot()).catch(() => undefined);
+    }
   }
 
   async function resume(): Promise<void> {
@@ -255,6 +270,44 @@ export const usePlayerStore = defineStore("player", () => {
 
   function persistPlaybackState(): void {
     savePlayerSnapshot(playerSnapshot());
+    queueCloudSync();
+  }
+
+  function queueCloudSync(): void {
+    if (!accountStore.user || cloudSyncPending) return;
+    const now = Date.now();
+    if (now - lastCloudSyncAt < CLOUD_SYNC_THROTTLE_MS) return;
+    cloudSyncPending = true;
+    setTimeout(() => {
+      cloudSyncPending = false;
+      lastCloudSyncAt = Date.now();
+      accountApi.savePlayback(playerSnapshot()).catch(() => undefined);
+    }, 300);
+  }
+
+  async function syncPlaybackFromCloud(): Promise<void> {
+    if (state.value !== "idle" || currentSong.value || queue.value.length > 0) return;
+    try {
+      const remote = await accountApi.getPlayback();
+      if (!remote.state || !remote.updatedAt) return;
+      const local = loadPlayerSnapshot();
+      if (local && local.updatedAt >= remote.updatedAt) return;
+      const snapshot = remote.state as PlayerSnapshot;
+      mode.value = snapshot.mode;
+      quality.value = snapshot.quality;
+      engine.value.setMode(snapshot.mode);
+      if (!snapshot.queue.length) return;
+      queue.value = new PlaybackQueue().setMode(snapshot.mode).replace(snapshot.queue, snapshot.cursor);
+      currentSong.value = queue.value.current;
+      currentTimeMs.value = snapshot.currentTimeMs;
+      durationMs.value = currentSong.value?.durationMs ?? 0;
+      engine.value.replaceQueue(snapshot.queue.map(withDirectUrl), snapshot.cursor);
+      await replayRestoredQueue();
+      if (snapshot.currentTimeMs > 0 && engine.value.getState() !== "error") seek(snapshot.currentTimeMs);
+      savePlayerSnapshot(snapshot);
+    } catch (err) {
+      console.warn("Cloud playback sync failed", err);
+    }
   }
 
   function playerSnapshot(): PlayerSnapshot {
@@ -297,5 +350,6 @@ export const usePlayerStore = defineStore("player", () => {
     restoreLastSession,
     activeLine,
     downloadSong,
+    syncPlaybackFromCloud,
   };
 });

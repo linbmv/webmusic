@@ -83,6 +83,15 @@ export const useLibraryStore = defineStore("library", () => {
     await repository.removeFavoriteSong(stableId);
     await refreshFavorites();
     notifyLibraryChanged();
+    try {
+      const orphans = findOrphans([stableId]);
+      if (orphans.length > 0) {
+        const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
+        useDownloadQueueStore().removeDownloadsForSongs(orphans);
+      }
+    } catch (err) {
+      console.warn("Orphan cleanup failed:", err);
+    }
   }
 
   async function createPlaylist(name: string): Promise<LocalPlaylist> {
@@ -99,9 +108,20 @@ export const useLibraryStore = defineStore("library", () => {
   }
 
   async function deletePlaylist(id: string): Promise<void> {
+    const playlist = playlists.value.find((p) => p.id === id);
+    const affectedIds = playlist?.trackIds ?? [];
     await repository.deletePlaylist(id);
     playlists.value = await repository.listPlaylists();
     notifyLibraryChanged();
+    try {
+      const orphans = findOrphans(affectedIds);
+      if (orphans.length > 0) {
+        const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
+        useDownloadQueueStore().removeDownloadsForSongs(orphans);
+      }
+    } catch (err) {
+      console.warn("Orphan cleanup failed:", err);
+    }
   }
 
   async function addTrackToPlaylist(playlistId: string, song: NormalizedSong): Promise<void> {
@@ -109,6 +129,12 @@ export const useLibraryStore = defineStore("library", () => {
     playlists.value = await repository.listPlaylists();
     songs.value = await repository.listLibrarySongs();
     notifyLibraryChanged();
+    try {
+      const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
+      useDownloadQueueStore().ensureDownloaded(song);
+    } catch (err) {
+      console.warn("Auto-download trigger failed:", err);
+    }
   }
 
   async function addTracksToPlaylist(playlistId: string, items: NormalizedSong[]): Promise<void> {
@@ -117,12 +143,28 @@ export const useLibraryStore = defineStore("library", () => {
     playlists.value = await repository.listPlaylists();
     songs.value = await repository.listLibrarySongs();
     notifyLibraryChanged();
+    try {
+      const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
+      const queue = useDownloadQueueStore();
+      items.forEach((song) => queue.ensureDownloaded(song));
+    } catch (err) {
+      console.warn("Batch download trigger failed:", err);
+    }
   }
 
   async function removeTrackFromPlaylist(playlistId: string, songId: string): Promise<void> {
     await repository.removeTrackFromPlaylist(playlistId, songId);
     playlists.value = await repository.listPlaylists();
     notifyLibraryChanged();
+    try {
+      const orphans = findOrphans([songId]);
+      if (orphans.length > 0) {
+        const { useDownloadQueueStore } = await import("@/stores/downloadQueueStore");
+        useDownloadQueueStore().removeDownloadsForSongs(orphans);
+      }
+    } catch (err) {
+      console.warn("Orphan cleanup failed:", err);
+    }
   }
 
   // 从歌曲目录反查歌单曲目，保留歌单顺序；不再依赖收藏表，取消收藏也不会丢歌
@@ -143,6 +185,13 @@ export const useLibraryStore = defineStore("library", () => {
   async function refreshFavorites(): Promise<void> {
     favorites.value = await repository.listFavoriteSongs();
     songs.value = await repository.listLibrarySongs();
+  }
+
+  function findOrphans(candidateIds: string[]): string[] {
+    const inPlaylists = new Set<string>();
+    playlists.value.forEach((p) => p.trackIds.forEach((id) => inPlaylists.add(id)));
+    const inFavorites = new Set(favorites.value.map((s) => s.stableId));
+    return candidateIds.filter((id) => !inPlaylists.has(id) && !inFavorites.has(id));
   }
 
   return {

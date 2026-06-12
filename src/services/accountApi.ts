@@ -80,6 +80,14 @@ export async function createServerDownload(song: NormalizedSong, quality: AudioQ
   return (await request<DownloadResponse>("/api/me/downloads", { method: "POST", body: { song, quality, audioUrl } })).download;
 }
 
+export async function getPlayback(): Promise<{ state: unknown; updatedAt: number | null }> {
+  return request<{ state: unknown; updatedAt: number | null }>("/api/me/playback");
+}
+
+export async function savePlayback(state: unknown): Promise<{ state: unknown; updatedAt: number }> {
+  return request<{ state: unknown; updatedAt: number }>("/api/me/playback", { method: "PUT", body: { state } });
+}
+
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(path, {
     method: options.method ?? "GET",

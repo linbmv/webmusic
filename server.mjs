@@ -6,6 +6,7 @@ import { handleAuth, isRegistrationEnabled, requireUser } from "./backend/auth.m
 import { handleDownloads } from "./backend/downloads.mjs";
 import { httpError, sendJson, sendText } from "./backend/http.mjs";
 import { handleLibrary } from "./backend/library.mjs";
+import { handlePlayback } from "./backend/playback.mjs";
 import { buildProxyUrl, matchesProxyPrefix } from "./backend/proxy.mjs";
 import { cacheKey, getCached, setCached, ttlForPath } from "./backend/musicCache.mjs";
 
@@ -36,6 +37,7 @@ export function createMusicServer() {
       if (await handleAuth(req, res, url)) return;
       if (await handleLibrary(req, res, url)) return;
       if (await handleDownloads(req, res, url)) return;
+      if (await handlePlayback(req, res, url)) return;
       if (matchesProxyPrefix(url.pathname, "/api/music/free")) {
         await proxyMusic(url, res, { prefix: "/api/music/free", baseUrl: upstreams.free });
         return;

@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS user_downloads (
   created_at INTEGER NOT NULL,
   UNIQUE(user_id, asset_id)
 );
+
+CREATE TABLE IF NOT EXISTS playback_state (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `);
 
 addColumnIfMissing("audio_assets", "user_id", "TEXT");
