@@ -23,9 +23,9 @@ const baseProvider = {
 };
 
 export const defaultProviderConfig: ProviderRuntimeConfig = {
-  activeProviderId: "coco",
-  // Coco 主源 → FreeMusic → GD Studio fallback → 自建网易云兜底
-  fallbackProviderIds: ["freeMusic", "gdStudio", "neteaseCloud"],
+  activeProviderId: "gdStudio",
+  // GD Studio 主源（实测稳定）→ FreeMusic → Coco → 自建网易云兜底
+  fallbackProviderIds: ["freeMusic", "coco", "neteaseCloud"],
   defaultQuality: "320kmp3",
   // netease 优先：kuwo 上游近期非常慢，放后面避免拖死请求
   defaultSources: ["netease", "kuwo"],
