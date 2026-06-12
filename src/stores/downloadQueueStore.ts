@@ -34,10 +34,17 @@ export const useDownloadQueueStore = defineStore("downloadQueue", () => {
       if (account.downloads.some((d) => d.song.stableId === song.stableId)) continue;
 
       downloadingIds.value.add(song.stableId);
-      downloadOne(song, account, provider).finally(() => {
-        downloadingIds.value.delete(song.stableId);
-        if (queue.length > 0) void processQueue();
-      });
+      downloadOne(song, account, provider)
+        .then(() => {
+          downloadingIds.value.delete(song.stableId);
+        })
+        .catch((err) => {
+          console.error("Download failed:", song.name, err);
+          downloadingIds.value.delete(song.stableId);
+        })
+        .finally(() => {
+          if (queue.length > 0) void processQueue();
+        });
     }
     processing = false;
   }
@@ -89,5 +96,31 @@ export const useDownloadQueueStore = defineStore("downloadQueue", () => {
     await account.refreshDownloads();
   }
 
-  return { downloadingIds, ensureDownloaded, ensureAllPlaylistSongs, removeDownloadsForSongs, manualDownload: ensureDownloaded };
+  async function manualDownload(song: NormalizedSong): Promise<void> {
+    const account = useAccountStore();
+    if (!account.user) return;
+
+    // 手动下载：立即执行，不受并发限制
+    if (downloadingIds.value.has(song.stableId)) {
+      console.log("Already downloading:", song.name);
+      return;
+    }
+    if (account.downloads.some((d) => d.song.stableId === song.stableId)) {
+      console.log("Already downloaded:", song.name);
+      return;
+    }
+
+    downloadingIds.value.add(song.stableId);
+    try {
+      const provider = useProviderStore();
+      await downloadOne(song, account, provider);
+    } catch (err) {
+      console.error("Manual download failed:", song.name, err);
+      throw err; // 重新抛出，让调用方处理
+    } finally {
+      downloadingIds.value.delete(song.stableId);
+    }
+  }
+
+  return { downloadingIds, ensureDownloaded, ensureAllPlaylistSongs, removeDownloadsForSongs, manualDownload };
 });

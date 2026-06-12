@@ -1,0 +1,7 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "backend/storage.mjs", "reason": "表结构重构：shared_audio_assets + ref_count"}
+{"file": "backend/downloads.mjs", "reason": "下载流程改写：哈希去重+全局资产池"}
+{"file": "backend/sharedAssets.mjs", "reason": "新增：引用计数管理+文件哈希"}
+{"file": "src/stores/libraryStore.ts", "reason": "移除自动下载触发"}
+{"file": "src/stores/accountStore.ts", "reason": "移除登录批量下载"}
+{"file": "src/components/UI/ActionSheet.vue", "reason": "下载按钮文案适配"}

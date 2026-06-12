@@ -31,8 +31,10 @@ const incrementRefCount = db.prepare(`
   UPDATE shared_audio_assets SET ref_count = ref_count + 1 WHERE id = ?
 `);
 
-const decrementRefCount = db.prepare(`
-  UPDATE shared_audio_assets SET ref_count = ref_count - 1 WHERE id = ? AND ref_count > 0
+const decrementRefCountReturning = db.prepare(`
+  UPDATE shared_audio_assets SET ref_count = ref_count - 1
+  WHERE id = ? AND ref_count > 0
+  RETURNING id, file_path, ref_count
 `);
 
 const getAssetById = db.prepare(`
@@ -58,70 +60,69 @@ export async function computeFileHash(filePath) {
 }
 
 /**
- * 查找或创建共享资产
+ * 查找或创建共享资产（事务保护）
  * @returns {id, file_path, isNew}
  */
 export async function findOrCreateSharedAsset({ providerId, source, providerSongId, quality, tempFilePath, mimeType, sizeBytes }) {
-  // 1. 先按 provider 元信息查找（快速路径）
-  let existing = findSharedAsset.get(providerId, source, providerSongId, quality);
-  if (existing && existsSync(existing.file_path)) {
-    incrementRefCount.run(existing.id);
-    return { id: existing.id, file_path: existing.file_path, isNew: false };
-  }
-
-  // 2. 计算文件哈希（防止不同 provider 返回同一资源）
-  const contentHash = await computeFileHash(tempFilePath);
-
-  // 3. 按哈希查找去重
-  existing = findAssetByHash.get(contentHash);
-  if (existing && existsSync(existing.file_path)) {
-    incrementRefCount.run(existing.id);
-    // 如果是不同 provider 指向同一资源，也插入一条索引记录
-    if (existing.provider_id !== providerId || existing.source !== source || existing.provider_song_id !== providerSongId) {
-      const aliasId = randomUUID();
-      insertSharedAsset.run(aliasId, contentHash, providerId, source, providerSongId, quality, existing.file_path, mimeType, sizeBytes, nowMs());
-      return { id: aliasId, file_path: existing.file_path, isNew: false };
+  // 使用事务保护整个查找-创建-增加引用计数流程
+  return db.transaction(async () => {
+    // 1. 先按 provider 元信息查找（快速路径）
+    let existing = findSharedAsset.get(providerId, source, providerSongId, quality);
+    if (existing && existsSync(existing.file_path)) {
+      incrementRefCount.run(existing.id);
+      return { id: existing.id, file_path: existing.file_path, isNew: false };
     }
-    return { id: existing.id, file_path: existing.file_path, isNew: false };
-  }
 
-  // 4. 新资产，移动到全局目录
-  const assetId = randomUUID();
-  const ext = quality === "flac" ? "flac" : "mp3";
-  const destDir = join(globalAssetsDir, providerId, source, sanitizeSegment(providerSongId));
-  await mkdir(destDir, { recursive: true });
-  const destPath = join(destDir, `${quality}.${ext}`);
+    // 2. 计算文件哈希（防止不同 provider 返回同一资源）
+    const contentHash = await computeFileHash(tempFilePath);
 
-  // 移动文件（Node.js 22+ 无 fs.rename，用 cp + rm 模拟）
-  const { copyFile } = await import("node:fs/promises");
-  await copyFile(tempFilePath, destPath);
-  await rm(tempFilePath, { force: true });
+    // 3. 按哈希查找去重
+    existing = findAssetByHash.get(contentHash);
+    if (existing && existsSync(existing.file_path)) {
+      incrementRefCount.run(existing.id);
+      // 修复：不创建别名记录，直接增加原记录的引用计数
+      return { id: existing.id, file_path: existing.file_path, isNew: false };
+    }
 
-  insertSharedAsset.run(assetId, contentHash, providerId, source, providerSongId, quality, destPath, mimeType, sizeBytes, nowMs());
+    // 4. 新资产，移动到全局目录
+    const assetId = randomUUID();
+    const ext = quality === "flac" ? "flac" : "mp3";
+    const destDir = join(globalAssetsDir, providerId, source, sanitizeSegment(providerSongId));
+    await mkdir(destDir, { recursive: true });
+    const destPath = join(destDir, `${quality}.${ext}`);
 
-  return { id: assetId, file_path: destPath, isNew: true };
+    // 移动文件（Node.js 22+ 无 fs.rename，用 cp + rm 模拟）
+    const { copyFile } = await import("node:fs/promises");
+    await copyFile(tempFilePath, destPath);
+    await rm(tempFilePath, { force: true });
+
+    insertSharedAsset.run(assetId, contentHash, providerId, source, providerSongId, quality, destPath, mimeType, sizeBytes, nowMs());
+
+    return { id: assetId, file_path: destPath, isNew: true };
+  })();
 }
 
 /**
- * 减少引用计数，为0时删除文件
+ * 减少引用计数，为0时删除文件（事务保护 + RETURNING优化）
  */
 export async function removeAssetReference(sharedAssetId) {
-  const asset = getAssetById.get(sharedAssetId);
-  if (!asset) return;
+  // 使用事务保护 decrement + 检查 + 删除的原子性
+  const shouldDeleteFile = db.transaction(() => {
+    const updated = decrementRefCountReturning.get(sharedAssetId);
+    if (!updated) return null;
 
-  decrementRefCount.run(sharedAssetId);
-
-  // 重新查询检查是否为0
-  const updated = getAssetById.get(sharedAssetId);
-  if (updated && updated.ref_count === 0) {
-    // 删除文件
-    if (existsSync(updated.file_path)) {
-      await rm(updated.file_path, { force: true }).catch((err) => {
-        console.warn(`Failed to delete file ${updated.file_path}:`, err);
-      });
+    if (updated.ref_count === 0) {
+      deleteSharedAsset.run(sharedAssetId);
+      return updated.file_path;
     }
-    // 删除数据库记录
-    deleteSharedAsset.run(sharedAssetId);
+    return null;
+  })();
+
+  // 文件删除放在事务外（避免阻塞数据库）
+  if (shouldDeleteFile && existsSync(shouldDeleteFile)) {
+    await rm(shouldDeleteFile, { force: true }).catch((err) => {
+      console.warn(`Failed to delete file ${shouldDeleteFile}:`, err);
+    });
     console.log(`Removed shared asset ${sharedAssetId} (ref_count=0)`);
   }
 }

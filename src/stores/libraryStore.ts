@@ -178,7 +178,8 @@ export const useLibraryStore = defineStore("library", () => {
     const inPlaylists = new Set<string>();
     playlists.value.forEach((p) => p.trackIds.forEach((id) => inPlaylists.add(id)));
     const inFavorites = new Set(favorites.value.map((s) => s.stableId));
-    return candidateIds.filter((id) => !inPlaylists.has(id) && !inFavorites.has(id));
+    const inRecents = new Set(recents.value.map((r) => r.song.stableId));
+    return candidateIds.filter((id) => !inPlaylists.has(id) && !inFavorites.has(id) && !inRecents.has(id));
   }
 
   return {

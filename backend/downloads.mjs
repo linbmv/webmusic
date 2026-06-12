@@ -78,6 +78,10 @@ async function createDownload(req, res, userId) {
 
   // 获取用户级锁，确保并发下载串行执行
   const releaseLock = await acquireDownloadLock(userId);
+  let tempFilePath = null;
+  let sharedAssetId = null;
+  let isNewAsset = false;
+
   try {
     const currentTotal = totalDownloadedBytes(userId);
 
@@ -109,7 +113,7 @@ async function createDownload(req, res, userId) {
 
     const tempDir = join(downloadDir, "temp");
     mkdirSync(tempDir, { recursive: true });
-    const tempFilePath = join(tempDir, `${randomUUID()}.tmp`);
+    tempFilePath = join(tempDir, `${randomUUID()}.tmp`);
 
     const response = await fetchDownloadSource(audioUrl);
     await writeLimitedResponse(response, tempFilePath, { limitBytes, errorStatus: 507, errorMessage: "User download quota exceeded" });
@@ -118,7 +122,7 @@ async function createDownload(req, res, userId) {
     const mimeType = response.headers.get("content-type") ?? mimeFromExt(extensionFromUrl(audioUrl, quality));
 
     // 查找或创建共享资产（包含哈希去重）
-    const { id: sharedAssetId, file_path: finalPath, isNew } = await findOrCreateSharedAsset({
+    const result = await findOrCreateSharedAsset({
       providerId: song.provider.providerId,
       source: song.provider.source,
       providerSongId: song.providerSongId,
@@ -128,6 +132,10 @@ async function createDownload(req, res, userId) {
       sizeBytes: fileStat.size,
     });
 
+    sharedAssetId = result.id;
+    isNewAsset = result.isNew;
+    tempFilePath = null; // findOrCreateSharedAsset 已处理临时文件
+
     // 创建用户下载记录
     const downloadId = randomUUID();
     insertDownload.run(downloadId, userId, sharedAssetId, JSON.stringify(song), quality, nowMs());
@@ -135,6 +143,18 @@ async function createDownload(req, res, userId) {
     const download = getDownload.get(userId, downloadId);
     sendJson(res, 201, { download: toDownloadItem(download) });
     return true;
+  } catch (error) {
+    // 清理临时文件
+    if (tempFilePath) {
+      await rm(tempFilePath, { force: true }).catch(() => {});
+    }
+    // 回滚：如果是新创建的资产但用户记录插入失败，减少引用计数
+    if (sharedAssetId && isNewAsset) {
+      await removeAssetReference(sharedAssetId).catch((err) => {
+        console.error("Failed to rollback asset reference:", err);
+      });
+    }
+    throw error;
   } finally {
     releaseLock();
   }

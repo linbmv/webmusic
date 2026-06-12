@@ -1,0 +1,12 @@
+{
+  "id": "review-shared-assets-refactor",
+  "title": "双模型审查：共享资产池+引用计数重构（8文件，表结构+下载+删除逻辑）",
+  "status": "in_progress",
+  "strategy": "review-audit",
+  "currentPhase": "1",
+  "nextAction": "启动双模型交叉审查（gemini前端+codex后端）",
+  "gate": null,
+  "branch": "main",
+  "scope": "review-shared-assets-refactor",
+  "createdAt": "2026-06-12T08:30:00Z"
+}
