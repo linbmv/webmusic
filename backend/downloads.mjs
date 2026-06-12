@@ -12,22 +12,22 @@ const allowedSources = new Set(["netease", "kuwo", "qqmusic", "kugou", "joox"]);
 const defaultMaxUserBytes = 5_000_000_000; // 5GB
 const maxUserDownloadBytes = positiveInt(process.env.MAX_USER_DOWNLOAD_BYTES, defaultMaxUserBytes);
 
-// 用户级下载锁：防止并发下载突破配额
+// 用户级下载锁：防止并发下载突破配额（串行队列实现）
 const userDownloadLocks = new Map();
 
 async function acquireDownloadLock(userId) {
   const existingLock = userDownloadLocks.get(userId);
-  if (existingLock) {
-    await existingLock;
-  }
   let releaseLock;
   const lockPromise = new Promise((resolve) => {
     releaseLock = resolve;
   });
-  userDownloadLocks.set(userId, lockPromise);
+  userDownloadLocks.set(userId, existingLock ? existingLock.then(() => lockPromise) : lockPromise);
+  if (existingLock) await existingLock;
   return () => {
-    userDownloadLocks.delete(userId);
     releaseLock();
+    if (userDownloadLocks.get(userId) === lockPromise) {
+      userDownloadLocks.delete(userId);
+    }
   };
 }
 

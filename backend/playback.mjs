@@ -28,9 +28,18 @@ function readPlayback(res, userId) {
 async function writePlayback(req, res, userId) {
   requireMethod(req, "PUT");
   const body = await readJson(req, 2_000_000);
-  if (!body || typeof body.state !== "object") throw httpError(400, "state is required");
+  if (!body || typeof body.state !== "object" || body.state === null || Array.isArray(body.state)) {
+    throw httpError(400, "state must be a non-null object");
+  }
+  const state = body.state;
+  if (typeof state.mode !== "string" || typeof state.quality !== "string" || typeof state.cursor !== "number" || typeof state.currentTimeMs !== "number" || !Array.isArray(state.queue)) {
+    throw httpError(400, "state missing required fields or invalid types");
+  }
+  if (state.queue.length > 1000) {
+    throw httpError(400, "queue length exceeds maximum (1000)");
+  }
   const updatedAt = nowMs();
-  upsertPlaybackState.run(userId, JSON.stringify(body.state), updatedAt);
-  sendJson(res, 200, { state: body.state, updatedAt });
+  upsertPlaybackState.run(userId, JSON.stringify(state), updatedAt);
+  sendJson(res, 200, { state, updatedAt });
   return true;
 }

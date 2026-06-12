@@ -60,10 +60,28 @@ export const useDownloadQueueStore = defineStore("downloadQueue", () => {
     const account = useAccountStore();
     if (!account.user || stableIds.length === 0) return;
 
+    // 先从队列中移除待下载项（避免删除后又被下载回来）
+    const stableIdSet = new Set(stableIds);
+    const queueBefore = queue.length;
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (stableIdSet.has(queue[i].stableId)) {
+        queue.splice(i, 1);
+        downloadingIds.value.delete(queue[i].stableId);
+      }
+    }
+    if (queue.length < queueBefore) {
+      console.log(`Cancelled ${queueBefore - queue.length} pending downloads from queue`);
+    }
+
+    // 删除已存在的服务端下载
     const toRemove = account.downloads.filter((d) => stableIds.includes(d.song.stableId));
     for (const download of toRemove) {
       try {
-        await fetch(`/api/me/downloads/${download.id}`, { method: "DELETE", credentials: "same-origin" });
+        const response = await fetch(`/api/me/downloads/${download.id}`, { method: "DELETE", credentials: "same-origin" });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: "Unknown error" }));
+          console.warn(`Failed to remove download ${download.id}:`, response.status, error);
+        }
       } catch (error) {
         console.warn("Failed to remove download", download.id, error);
       }

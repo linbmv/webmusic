@@ -104,7 +104,7 @@ export const useAccountStore = defineStore("account", () => {
     startRemoteLibrarySync();
     try {
       const { usePlayerStore } = await import("@/stores/playerStore");
-      usePlayerStore().syncPlaybackFromCloud();
+      await usePlayerStore().syncPlaybackFromCloud();
     } catch (err) {
       console.warn("Playback sync failed:", err);
     }
